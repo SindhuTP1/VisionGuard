@@ -17,6 +17,8 @@ def test_health_reports_components(client):
     j = client.get("/health").json()
     assert set(j["components"]) == {"yolov8_person", "mediapipe_hands", "mediapipe_face", "mobilenetv3_classifier"}
     assert j["confidence_threshold"] == settings.arbitration.confidence_threshold
+    assert j["thresholds"]["face_asymmetry"] == settings.face.asymmetry_threshold
+    assert j["thresholds"]["hand_fail_fraction"] == settings.hand.anomaly_fail_fraction
 
 
 def test_rejects_wrong_content_type(client):
@@ -46,6 +48,18 @@ def test_metrics_serves_run_file_verbatim(client):
     j = client.get("/metrics", params={"run_id": "unit-run"}).json()
     assert j["available"] and j["metrics"] == payload
     assert any(r["run_id"] == "unit-run" for r in client.get("/metrics/runs").json())
+
+
+@pytest.mark.parametrize("origin,allowed", [
+    ("http://localhost:3000", True),
+    ("http://localhost:3001", True),      # next dev falls back to 3001 when 3000 is busy
+    ("http://127.0.0.1:5173", True),
+    ("https://evil.example.com", False),
+    ("http://localhost.evil.com", False),
+])
+def test_cors_allows_any_local_port_only(client, origin, allowed):
+    r = client.options("/analyze", headers={"Origin": origin, "Access-Control-Request-Method": "POST"})
+    assert (r.headers.get("access-control-allow-origin") == origin) is allowed
 
 
 @pytest.mark.parametrize("bad", ["../../etc", "a/b", "..\\x"])

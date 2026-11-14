@@ -257,6 +257,11 @@ class RuntimeConfig:
     cors_origins: tuple[str, ...] = tuple(
         o.strip() for o in _env_str("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()
     )
+    # Also allow any localhost/127.0.0.1 port, because `next dev` moves to 3001+ when
+    # 3000 is busy. Set VG_CORS_ORIGIN_REGEX="" in production to use only the list above.
+    cors_origin_regex: str | None = (
+        _env_str("CORS_ORIGIN_REGEX", r"^http://(localhost|127\.0\.0\.1)(:\d+)?$") or None
+    )
 
 
 @dataclass(frozen=True)

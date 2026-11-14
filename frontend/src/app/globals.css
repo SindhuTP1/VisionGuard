@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+/* Design tokens. Components use these roles, never raw hex.
+   Chart series and status colors come from the validated data-viz palette:
+   series-1/2 passed the CVD + contrast checks on both surfaces. */
+:root {
+  color-scheme: light;
+  --surface-0: #f6f6f4;      /* page */
+  --surface-1: #fcfcfb;      /* cards, chart surface */
+  --surface-2: #f0efec;      /* insets, tracks */
+  --line: #e2e1dc;
+  --line-strong: #c9c8c1;
+  --ink-1: #0b0b0b;          /* primary text */
+  --ink-2: #52514e;          /* secondary text */
+  --ink-3: #75746f;          /* muted text */
+  --accent: #2a78d6;
+  --accent-ink: #ffffff;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --good: #0ca30c;
+  --good-ink: #006300;
+  --warning: #fab219;
+  --warning-ink: #7a5200;
+  --critical: #d03b3b;
+  --critical-ink: #a32020;
+  --good-soft: #e7f5e7;
+  --warning-soft: #fdf3dc;
+  --critical-soft: #fbe9e9;
+  /* sequential blue ramp (100 → 700) */
+  --seq-100: #cde2fb; --seq-200: #9ec5f4; --seq-300: #6da7ec; --seq-400: #3987e5;
+  --seq-500: #256abf; --seq-600: #184f95; --seq-700: #0d366b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-0: #121211;
+    --surface-1: #1a1a19;
+    --surface-2: #242422;
+    --line: #2e2e2b;
+    --line-strong: #44443f;
+    --ink-1: #f0efec;
+    --ink-2: #c3c2b7;
+    --ink-3: #96958c;
+    --accent: #3987e5;
+    --accent-ink: #ffffff;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --good-ink: #5fd35f;
+    --warning-ink: #fab219;
+    --critical-ink: #f08080;
+    --good-soft: #142a14;
+    --warning-soft: #2e2510;
+    --critical-soft: #331616;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #121211;
+  --surface-1: #1a1a19;
+  --surface-2: #242422;
+  --line: #2e2e2b;
+  --line-strong: #44443f;
+  --ink-1: #f0efec;
+  --ink-2: #c3c2b7;
+  --ink-3: #96958c;
+  --accent: #3987e5;
+  --accent-ink: #ffffff;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --good-ink: #5fd35f;
+  --warning-ink: #fab219;
+  --critical-ink: #f08080;
+  --good-soft: #142a14;
+  --warning-soft: #2e2510;
+  --critical-soft: #331616;
+}
+
+@theme inline {
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink-1: var(--ink-1);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --color-good: var(--good);
+  --color-good-ink: var(--good-ink);
+  --color-good-soft: var(--good-soft);
+  --color-warning: var(--warning);
+  --color-warning-ink: var(--warning-ink);
+  --color-warning-soft: var(--warning-soft);
+  --color-critical: var(--critical);
+  --color-critical-ink: var(--critical-ink);
+  --color-critical-soft: var(--critical-soft);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--surface-0);
+  color: var(--ink-1);
+}
+
+/* Tabular numbers everywhere numbers are compared. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}

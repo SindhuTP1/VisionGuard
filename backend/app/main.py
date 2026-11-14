@@ -64,6 +64,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.runtime.cors_origins),
+    allow_origin_regex=settings.runtime.cors_origin_regex,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
@@ -81,6 +82,11 @@ def health() -> HealthResponse:
         device=str(resolve_device(settings.runtime.device)),
         components=comps,
         confidence_threshold=settings.arbitration.confidence_threshold,
+        thresholds={
+            "confidence": settings.arbitration.confidence_threshold,
+            "face_asymmetry": settings.face.asymmetry_threshold,
+            "hand_fail_fraction": settings.hand.anomaly_fail_fraction,
+        },
     )
 
 

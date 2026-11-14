@@ -146,6 +146,7 @@ class HealthResponse(_Strict):
     device: str
     components: dict[str, ComponentStatus]
     confidence_threshold: float
+    thresholds: dict[str, float] = Field(description="Decision thresholds from config.py, so clients never hardcode them")
 
 
 class RunSummary(_Strict):
