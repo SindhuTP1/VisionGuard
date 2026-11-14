@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Generated data and model files (re-create with the scripts; see README)
+data/
+weights/
+*.pt
+*.task
+
+# Run results ARE kept: runs/<id>/metrics.json, history.json, train.log
+
+# Editors / OS / secrets
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.env
+.env.*
