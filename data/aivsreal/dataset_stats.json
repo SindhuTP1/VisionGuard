@@ -1,0 +1,66 @@
+{
+  "dataset": "Parveshiiii/AI-vs-Real",
+  "revision": "bce7ac5b95c36c5013389341b94c75aa44882165",
+  "hf_label_map": {
+    "0": "fake",
+    "1": "real"
+  },
+  "source_label_counts": {
+    "fake": 3333,
+    "real": 10666
+  },
+  "sampling": "whole row groups, split by row group (no group shared across splits)",
+  "seed": 42,
+  "split_counts": {
+    "train": {
+      "fake": 680,
+      "real": 680
+    },
+    "val": {
+      "fake": 160,
+      "real": 160
+    },
+    "test": {
+      "fake": 160,
+      "real": 160
+    }
+  },
+  "row_groups_per_split": {
+    "train": {
+      "fake": 17,
+      "real": 17
+    },
+    "val": {
+      "fake": 4,
+      "real": 4
+    },
+    "test": {
+      "fake": 4,
+      "real": 4
+    }
+  },
+  "per_class": {
+    "fake": {
+      "n": 1000,
+      "formats": {
+        "JPEG": 1000
+      },
+      "median_width": 1024.0,
+      "median_height": 1024.0,
+      "median_bytes": 125987.5
+    },
+    "real": {
+      "n": 1000,
+      "formats": {
+        "JPEG": 1000
+      },
+      "median_width": 640.0,
+      "median_height": 442.5,
+      "median_bytes": 46809.5
+    }
+  },
+  "skipped": {
+    "duplicate": 1
+  },
+  "created_at": "2026-11-14T22:47:24+0530"
+}

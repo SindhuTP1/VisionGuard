@@ -1,0 +1,14 @@
+2026-11-14 23:02:20,977 INFO run 20261114-230220 on cpu (torch 2.15.0+cpu)
+2026-11-14 23:02:20,988 INFO train=1360 val=320
+2026-11-14 23:02:59,116 INFO epoch  1 | train loss 0.2982 acc 0.8713 | val loss 0.2538 acc 0.8844 auc 0.9760 | 36s  *best*
+2026-11-14 23:03:24,137 INFO epoch  2 | train loss 0.1791 acc 0.9243 | val loss 0.1363 acc 0.9437 auc 0.9934 | 25s  *best*
+2026-11-14 23:03:49,695 INFO epoch  3 | train loss 0.1753 acc 0.9346 | val loss 0.2029 acc 0.8969 auc 0.9826 | 26s
+2026-11-14 23:04:16,090 INFO epoch  4 | train loss 0.1608 acc 0.9426 | val loss 0.2167 acc 0.8938 auc 0.9930 | 26s
+2026-11-14 23:04:42,624 INFO epoch  5 | train loss 0.1278 acc 0.9434 | val loss 0.1474 acc 0.9625 auc 0.9959 | 26s
+2026-11-14 23:04:42,624 INFO early stopping: no val-loss improvement for 3 epochs
+2026-11-14 23:04:42,633 INFO best epoch 2 (val loss 0.1363); evaluating best checkpoint on val + test
+2026-11-14 23:05:24,491 INFO SHORTCUT PROBE (raw-dataset metadata only, no pixels): test acc=1.0000 auc=1.0000
+2026-11-14 23:05:24,491 INFO SCALE STRESS (all test images at short side 512): acc=0.9125 auc=0.9568
+2026-11-14 23:05:24,491 INFO TEST n=320 acc=0.9500 (95% CI [0.925, 0.9719]) f1=0.9509 auc=0.9870 | coverage@0.65=0.934 acc_on_covered=0.9698996655518395
+2026-11-14 23:05:24,494 INFO promoted checkpoint -> D:\Projects\VisionGuard\backend\weights\mobilenetv3_small_aivsreal.pt
+2026-11-14 23:05:24,494 INFO wrote D:\Projects\VisionGuard\backend\runs\20261114-230220\metrics.json
