@@ -90,10 +90,12 @@ class Paths:
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class YoloConfig:
-    weights_name: str = _env_str("YOLO_WEIGHTS", "yolov8n.pt")
+    # The pose variant returns person boxes AND 17 COCO body keypoints, so one model
+    # drives both the person crop and the body checks (hands per person, arm shape).
+    weights_name: str = _env_str("YOLO_WEIGHTS", "yolov8n-pose.pt")
     weights_url: str = _env_str(
         "YOLO_URL",
-        "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n.pt",
+        "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n-pose.pt",
     )
     person_class_id: int = 0          # COCO "person"
     conf_threshold: float = _env_float("YOLO_CONF", 0.35)
@@ -133,6 +135,56 @@ class HandConfig:
     min_palm_px: float = 15.0
     # Fraction of failed plausibility checks on a hand that flags it anomalous.
     anomaly_fail_fraction: float = _env_float("HAND_FAIL_FRAC", 0.34)
+
+
+# --------------------------------------------------------------------------- #
+# Layer 2c: body pose (hands per person, arm proportions)
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class BodyConfig:
+    kp_min_conf: float = 0.5          # keypoints below this are ignored
+    # A detected hand belongs to a person if its wrist is within this many shoulder
+    # widths of one of that person's pose wrists.
+    hand_assoc_shoulders: float = 0.6
+    extra_hand_min: int = 3           # this many hands attached to one person → extra hand
+    # Upper-arm / forearm length in 2D. Foreshortening makes this noisy, so only
+    # extreme values are flagged, and only as a weak signal. Uncalibrated.
+    arm_ratio_bounds: tuple[float, float] = (0.33, 3.0)
+    min_segment_frac: float = 0.06    # segments shorter than this x box height are ignored
+
+
+# --------------------------------------------------------------------------- #
+# Layer 2a+: finger counting from the hand silhouette
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class FingerCountConfig:
+    """MediaPipe always fits 5 fingers, so we count fingertips independently:
+    GrabCut cuts out the hand (seeded by the landmarks), then bumps along its
+    outline are counted. Thresholds are in palm widths (index-MCP to pinky-MCP).
+    Tuned on real hands (HaGRID sample), where any count >= 6 is a false alarm."""
+    min_palm_px: float = _env_float("COUNT_MIN_PALM_PX", 30.0)   # smaller hands can't be counted
+    min_extended: int = 3            # fists / grips can't be counted from an outline
+    work_palm_px: float = 110.0      # crops are rescaled so the palm is about this wide
+    max_work_side: int = 380         # cap on the rescaled crop's longer side (keeps GrabCut fast)
+    crop_pad: float = 0.9            # padding around the landmarks, in palm widths
+    grabcut_iters: int = 5
+    # Outline peaks = fingertip candidates.
+    tip_min_dist: float = 0.75       # distance from palm centre
+    tip_max_dist: float = 3.0
+    tip_min_prominence: float = 0.22
+    tip_min_axis_proj: float = 0.25  # must lie on the finger side of the wrist (fraction of wrist→middle-MCP)
+    tip_match_dist: float = 0.4      # candidate within this of a MediaPipe tip = that finger
+    # Segmentation sanity checks: if these fail, the result is "can't count".
+    max_area_ratio: float = 7.0      # silhouette area / palm polygon area (leaked into face/background)
+    max_border_fraction: float = 0.12  # silhouette pixels touching the crop border (except wrist side)
+    extra_finger_min_count: int = 6
+    # Scanline method (works on flat palms where fingers touch): sample lines
+    # across the fingers just above the knuckles and count the dark seams between them.
+    scan_offsets: tuple[float, ...] = (0.3, 0.45, 0.6)   # beyond the knuckle line, in palm widths
+    scan_min_digit_width: float = 0.16                    # a finger is ~0.25-0.3 palm widths, so its halves can't both pass
+    scan_max_digit_width: float = 0.45                    # wider single pieces are suspect (merged/leak)
+    scan_valley_prominence: float = 0.12                  # fraction of the run's brightness range
+    scan_valley_min_abs: float = 6.0                      # grey levels
 
 
 # --------------------------------------------------------------------------- #
@@ -242,6 +294,17 @@ class TrainConfig:
 class ArbitrationConfig:
     # Final confidence below this → "Needs Review".
     confidence_threshold: float = _env_float("CONFIDENCE_THRESHOLD", 0.65)
+    # Fixed geometric confidences for count-based findings (heuristic, documented).
+    # Alone, 0.75 clears the review bar. Averaged with a classifier that says
+    # "real", it drops below it, so disagreement goes to a human.
+    extra_finger_conf: float = 0.75           # exactly 6 fingertips counted
+    extra_finger_conf_many: float = 0.65      # 7+: more often a segmentation artefact
+    extra_hand_conf: float = 0.8              # 3+ hands on one person
+    extra_hand_same_wrist_conf: float = 0.7   # two separate hands at one wrist
+    # Arm ratios are shown but NOT used as a finding: on real photos, an arm pointing
+    # at the camera foreshortens past any usable bound (e.g. 3.7 on a real photo).
+    limb_findings_enabled: bool = False
+    distorted_limb_conf: float = 0.5
 
 
 # --------------------------------------------------------------------------- #
@@ -269,6 +332,8 @@ class Settings:
     paths: Paths = field(default_factory=Paths)
     yolo: YoloConfig = field(default_factory=YoloConfig)
     hand: HandConfig = field(default_factory=HandConfig)
+    count: FingerCountConfig = field(default_factory=FingerCountConfig)
+    body: BodyConfig = field(default_factory=BodyConfig)
     face: FaceConfig = field(default_factory=FaceConfig)
     classifier: ClassifierConfig = field(default_factory=ClassifierConfig)
     train: TrainConfig = field(default_factory=TrainConfig)

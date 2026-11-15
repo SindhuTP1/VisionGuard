@@ -23,7 +23,7 @@ def clf(p_fake):
 
 
 def run(hands, face, c):
-    return arbitrate(P, hands, face, c, settings.arbitration, settings.hand, settings.face)
+    return arbitrate(P, hands, face, None, c, settings)
 
 
 def test_geometric_confidence_maps_threshold_to_half():

@@ -21,7 +21,8 @@ from typing import Any
 
 import numpy as np
 
-from .config import FaceConfig, HandConfig, Settings, YoloConfig, settings as default_settings
+from .anatomy import FingerCount, count_fingers
+from .config import FaceConfig, FingerCountConfig, HandConfig, YoloConfig
 from .model_loader import ModelRegistry
 from .vision_utils import (
     BBox,
@@ -70,6 +71,8 @@ class PersonResult:
     person_score: float | None = None
     note: str | None = None
     person_boxes: list[list[int]] = field(default_factory=list)  # all detections, largest first
+    # 17 COCO keypoints per person ([x, y, conf], full-image pixels), same order as person_boxes.
+    keypoints: list[list[list[float]]] = field(default_factory=list)
 
 
 def head_crops(rgb: np.ndarray, person_boxes: list[list[int]], limit: int = 3) -> list[np.ndarray]:
@@ -107,23 +110,29 @@ def detect_person(rgb: np.ndarray, registry: ModelRegistry, cfg: YoloConfig) -> 
         res = model.predict(bgr, classes=[cfg.person_class_id], conf=cfg.conf_threshold,
                             iou=cfg.iou_threshold, verbose=False)[0]
     boxes: list[BBox] = []
+    kps: list[list[list[float]]] = []
     if res.boxes is not None and len(res.boxes):
         xyxy = res.boxes.xyxy.cpu().numpy()
         confs = res.boxes.conf.cpu().numpy()
-        for (x1, y1, x2, y2), c in zip(xyxy, confs):
+        kp_data = res.keypoints.data.cpu().numpy() if getattr(res, "keypoints", None) is not None else None
+        for j, ((x1, y1, x2, y2), c) in enumerate(zip(xyxy, confs)):
             boxes.append(BBox(int(x1), int(y1), int(math.ceil(x2)), int(math.ceil(y2)), float(c)))
+            kps.append([[round(float(v), 1) if k < 2 else round(float(v), 3) for k, v in enumerate(p)]
+                        for p in kp_data[j]] if kp_data is not None and len(kp_data) > j else [])
 
-    all_boxes = [b.as_list() for b in sorted(boxes, key=lambda b: b.area, reverse=True)]
+    order = sorted(range(len(boxes)), key=lambda i: boxes[i].area, reverse=True)
+    all_boxes = [boxes[i].as_list() for i in order]
+    all_kps = [kps[i] for i in order]
     primary = select_primary_box(boxes, min_area=cfg.min_box_area_frac * w * h)
     if primary is None:
         note = "No person detected; using full image" if not boxes else "Persons too small; using full image"
         return PersonResult(LayerStatus.OK, full.as_list(), True, len(boxes), note=note,
-                            person_boxes=all_boxes), rgb
+                            person_boxes=all_boxes, keypoints=all_kps), rgb
 
     crop_box = primary.padded(cfg.crop_padding, w, h)
     return (
         PersonResult(LayerStatus.OK, crop_box.as_list(), False, len(boxes), _r(primary.score),
-                     person_boxes=all_boxes),
+                     person_boxes=all_boxes, keypoints=all_kps),
         crop_box.crop(rgb),
     )
 
@@ -167,8 +176,12 @@ class HandFinding:
     fingers: dict[str, dict[str, Any]] = field(default_factory=dict)
     failed_fingers: list[str] = field(default_factory=list)
     fail_fraction: float = 0.0
-    anomalous: bool = False
+    anomalous: bool = False             # skeleton implausible (lengths / bends)
     skipped_reason: str | None = None
+    # 21 MediaPipe landmarks as [x, y] in full-image pixels (for drawing)
+    landmarks: list[list[float]] = field(default_factory=list)
+    # Independent fingertip count from the hand's outline (see anatomy.py)
+    finger_count: FingerCount | None = None
 
 
 @dataclass
@@ -176,9 +189,10 @@ class HandResult:
     status: LayerStatus
     num_hands: int
     hands: list[HandFinding] = field(default_factory=list)
-    anomalous: bool = False
+    anomalous: bool = False             # any judged hand has an implausible skeleton
     max_fail_fraction: float | None = None
     note: str | None = None
+    extra_finger: bool = False          # any hand counted 6+ fingertips
 
 
 def _signed_bends(pts: np.ndarray) -> dict[str, list[float]]:
@@ -264,13 +278,18 @@ def evaluate_hand(pts: np.ndarray, cfg: HandConfig, index: int = 0,
     return finding
 
 
-def analyze_hands(rgb: np.ndarray, registry: ModelRegistry, cfg: HandConfig) -> HandResult:
+def analyze_hands(rgb: np.ndarray, registry: ModelRegistry, cfg: HandConfig,
+                  count_cfg: FingerCountConfig | None = None,
+                  offset: tuple[float, float] = (0.0, 0.0)) -> HandResult:
+    """``rgb`` is the analysed region, and ``offset`` its top-left in the full image.
+    All coordinates in the result are full-image pixels."""
     comp = registry.hands
     landmarker = comp.try_get()
     if landmarker is None:
         return HandResult(LayerStatus.UNAVAILABLE, 0, note=comp.status()["error"])
 
     h, w = rgb.shape[:2]
+    dx, dy = offset
     with comp.lock:  # MediaPipe tasks are not thread-safe
         res = landmarker.detect(_to_mp_image(rgb))
 
@@ -281,13 +300,24 @@ def analyze_hands(rgb: np.ndarray, registry: ModelRegistry, cfg: HandConfig) -> 
     for i, lms in enumerate(res.hand_landmarks):
         cat = res.handedness[i][0] if i < len(res.handedness) and res.handedness[i] else None
         pts = landmarks_to_array(lms, w, h)
-        hands.append(evaluate_hand(pts, cfg, i, cat.category_name if cat else None, cat.score if cat else None))
+        hf = evaluate_hand(pts, cfg, i, cat.category_name if cat else None, cat.score if cat else None)
+        hf.landmarks = [[round(float(x + dx), 1), round(float(y + dy), 1)] for x, y in pts[:, :2]]
+        if count_cfg is not None:
+            try:
+                hf.finger_count = count_fingers(rgb, pts, [n for n, f in hf.fingers.items() if f['extended']], count_cfg).shifted(dx, dy)
+            except Exception as exc:  # noqa: BLE001 - counting is best-effort per hand
+                log.exception("finger counting failed")
+                hf.finger_count = FingerCount("cant_count", reason=f"counting error: {type(exc).__name__}")
+        hands.append(hf)
 
+    extra = any(hf.finger_count is not None and hf.finger_count.extra_finger for hf in hands)
     judged = [hf for hf in hands if hf.skipped_reason is None]
     if not judged:
-        return HandResult(LayerStatus.SKIPPED, len(hands), hands, note="All hands too small to judge")
+        return HandResult(LayerStatus.SKIPPED, len(hands), hands, note="All hands too small to judge",
+                          extra_finger=extra)
     return HandResult(
         LayerStatus.OK, len(hands), hands,
+        extra_finger=extra,
         anomalous=any(hf.anomalous for hf in judged),
         max_fail_fraction=max(hf.fail_fraction for hf in judged),
     )

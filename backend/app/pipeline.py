@@ -1,4 +1,4 @@
-"""End-to-end orchestration: person crop → hands + face → classifier → arbitration.
+"""End-to-end orchestration: person + pose → hands (+ finger count) + face → body → classifier → arbitration.
 
 A failure in one layer is recorded in that layer's status and never crashes the
 whole request. The report always says which layers actually ran.
@@ -16,6 +16,7 @@ from typing import Any, Callable, TypeVar
 import numpy as np
 
 from .arbitration import ArbitrationResult, arbitrate
+from .body import BodyResult, analyze_body
 from .classifier import ClassifierResult, classify
 from .config import Settings, settings as default_settings
 from .detectors import (
@@ -55,6 +56,7 @@ class AnalysisReport:
     person: PersonResult
     hands: HandResult
     face: FaceResult
+    body: BodyResult
     classifier: ClassifierResult
     arbitration: ArbitrationResult
     timings_ms: dict[str, float] = field(default_factory=dict)
@@ -90,17 +92,20 @@ class VisionGuardPipeline:
 
         person, region = self._timed("person", timings, lambda: detect_person(rgb, reg, cfg.yolo), person_fallback)
 
-        hands = self._timed("hands", timings, lambda: analyze_hands(region, reg, cfg.hand),
+        offset = (float(person.bbox[0]), float(person.bbox[1]))   # region origin in the full image
+        hands = self._timed("hands", timings, lambda: analyze_hands(region, reg, cfg.hand, cfg.count, offset),
                             lambda e: HandResult(LayerStatus.ERROR, 0, note=e))
         face = self._timed("face", timings,
                            lambda: analyze_face(region, reg, cfg.face, head_crops(rgb, person.person_boxes)),
                            lambda e: FaceResult(LayerStatus.ERROR, 0, note=e))
+        body = self._timed("body", timings, lambda: analyze_body(person, hands, cfg.body),
+                           lambda e: BodyResult(LayerStatus.ERROR, note=e))
         clf = self._timed("classifier", timings, lambda: classify(rgb, reg),
                           lambda e: ClassifierResult(LayerStatus.ERROR, note=e))
 
-        arb = arbitrate(person, hands, face, clf, cfg.arbitration, cfg.hand, cfg.face)
+        arb = arbitrate(person, hands, face, body, clf, cfg)
         timings["total"] = round((time.perf_counter() - t_start) * 1000, 1)
-        return AnalysisReport({"width": w, "height": h}, person, hands, face, clf, arb, timings)
+        return AnalysisReport({"width": w, "height": h}, person, hands, face, body, clf, arb, timings)
 
     def analyze_bytes(self, data: bytes) -> AnalysisReport:
         rt = self.cfg.runtime

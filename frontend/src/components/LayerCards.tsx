@@ -1,5 +1,6 @@
-import type { ClassifierOut, FacesOut, HandsOut, PersonOut } from "@/lib/api";
-import { num, pct } from "@/lib/format";
+import type { AnalysisResponse, BodyOut, ClassifierOut, FacesOut, Finding, HandOut, HandsOut, PersonOut } from "@/lib/api";
+import { FINDING_LABEL, num, pct } from "@/lib/format";
+import { HandZoom } from "./HandZoom";
 import { Card, KV, LayerBadge } from "./ui";
 
 export function PersonCard({ person }: { person: PersonOut }) {
@@ -118,11 +119,11 @@ function ScoreVsThreshold({ score, threshold, anomalous }: { score: number | nul
 
 const FINGERS = ["thumb", "index", "middle", "ring", "pinky"];
 
-export function HandsCard({ hands }: { hands: HandsOut }) {
+export function HandsCard({ hands, report, src }: { hands: HandsOut; report: AnalysisResponse; src: string }) {
   return (
     <Card title="3 · Hand anatomy" aside={<LayerBadge status={hands.status} />}>
       {hands.hands.length === 0 && <Note>{hands.note ?? "No hands found."}</Note>}
-      <ul className="space-y-3">
+      <ul className="space-y-4">
         {hands.hands.map((h) => (
           <li key={h.index} className="text-sm">
             <div className="flex items-baseline justify-between">
@@ -131,16 +132,22 @@ export function HandsCard({ hands }: { hands: HandsOut }) {
                 {h.handedness && <span className="text-ink-3"> · {h.handedness}</span>}
               </span>
               {h.skipped_reason ? (
-                <span className="text-xs text-ink-3">skipped</span>
+                <span className="text-xs text-ink-3">skeleton skipped</span>
               ) : (
                 <span className={`text-xs font-medium ${h.anomalous ? "text-critical-ink" : "text-good-ink"}`}>
-                  {h.anomalous ? `✗ ${h.failed_fingers.length} implausible fingers` : "✓ Plausible"}
+                  {h.anomalous ? `✗ ${h.failed_fingers.length} implausible fingers` : "✓ Skeleton plausible"}
                 </span>
               )}
             </div>
+            <div className="mt-2 flex flex-wrap items-start gap-3">
+              <HandZoom src={src} report={report} hand={h} size={150} />
+              <FingerCountSummary hand={h} />
+            </div>
             {h.skipped_reason ? (
-              <p className="text-xs text-ink-3">{h.skipped_reason}</p>
+              <p className="mt-1 text-xs text-ink-3">{h.skipped_reason}</p>
             ) : (
+              <details className="mt-2">
+              <summary className="cursor-pointer text-xs text-ink-2">Per-finger skeleton checks</summary>
               <table className="tnum mt-1.5 w-full text-xs">
                 <thead>
                   <tr className="text-left text-ink-3">
@@ -169,15 +176,106 @@ export function HandsCard({ hands }: { hands: HandsOut }) {
                   })}
                 </tbody>
               </table>
+              </details>
             )}
           </li>
         ))}
       </ul>
       {hands.hands.length > 0 && (
         <Note>
-          MediaPipe always fits a 5-finger skeleton, so extra fingers show up only as implausible lengths or
-          bends. Length is relative to palm width.
+          MediaPipe always fits a 5-finger skeleton, so fingers are also counted independently from the hand&apos;s
+          outline (yellow) and from the seams between touching fingers along the pink lines in the zoom.
+          Numbered dots are fingertips found on the outline, and red ones aren&apos;t explained by the skeleton.
         </Note>
+      )}
+    </Card>
+  );
+}
+
+function FingerCountSummary({ hand }: { hand: HandOut }) {
+  const fc = hand.finger_count;
+  if (!fc) return null;
+  if (fc.status !== "counted") {
+    return (
+      <div className="min-w-0 flex-1 text-xs">
+        <p className="font-medium text-ink-2">Fingers: can&apos;t count</p>
+        <p className="mt-0.5 text-ink-3">{fc.reason}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="min-w-0 flex-1 text-xs">
+      <p className={`text-2xl font-semibold ${fc.extra_finger ? "text-critical-ink" : "text-ink-1"}`}>
+        {fc.count} <span className="text-sm font-normal text-ink-2">finger{fc.count === 1 ? "" : "s"} counted</span>
+      </p>
+      {fc.extra_finger ? (
+        <p className="mt-1 font-medium text-critical-ink">✗ More than 5: possible extra finger</p>
+      ) : (
+        <p className="mt-1 text-good-ink">✓ No extra finger seen</p>
+      )}
+      <dl className="tnum mt-2 space-y-0.5 text-ink-3">
+        <div>Outline fingertips: {fc.outline_count ?? "—"}</div>
+        <div>Finger row + thumb: {fc.scan_count ?? "— (hand not fully open)"}</div>
+      </dl>
+      <p className="mt-1 text-ink-3">Fewer than 5 is normal when fingers are bent or hidden.</p>
+    </div>
+  );
+}
+
+export function BodyCard({ body, hands }: { body: BodyOut; hands: HandsOut }) {
+  return (
+    <Card title="5 · Body (hands per person)" aside={<LayerBadge status={body.status} />}>
+      {body.persons.length === 0 && <Note>{body.note ?? "No body pose found."}</Note>}
+      <ul className="space-y-2 text-sm">
+        {body.persons.map((p) => (
+          <li key={p.index}>
+            <div className="flex items-baseline justify-between">
+              <span className="text-ink-2">Person {p.index + 1}</span>
+              <span className={`text-xs font-medium ${p.extra_hand || p.distorted_limb ? "text-critical-ink" : "text-good-ink"}`}>
+                {p.extra_hand ? `✗ ${p.extra_hand_reason}` : p.distorted_limb ? "✗ Arm proportions implausible" : "✓ Plausible"}
+              </span>
+            </div>
+            <p className="tnum text-xs text-ink-3">
+              {p.hands.length} hand{p.hands.length === 1 ? "" : "s"} attached
+              {p.hands.length > 0 && ` (hand ${p.hands.map((k) => k + 1).join(", ")})`}
+              {p.arms.length > 0 && ` · arm ratio ${p.arms.map((a) => `${a.side} ${a.ratio.toFixed(2)}`).join(", ")}`}
+            </p>
+          </li>
+        ))}
+      </ul>
+      {body.unattached_hands.length > 0 && (
+        <Note>
+          {body.unattached_hands.length} of {hands.num_hands} hand(s) couldn&apos;t be matched to a body (wrist hidden or
+          out of frame), so they aren&apos;t counted.
+        </Note>
+      )}
+    </Card>
+  );
+}
+
+export function FindingsCard({ findings }: { findings: Finding[] }) {
+  return (
+    <Card title="What looks wrong" aside={`${findings.length} finding${findings.length === 1 ? "" : "s"}`}>
+      {findings.length === 0 ? (
+        <p className="text-sm text-ink-2">
+          No anatomical problem found in the checks that could run (finger count, hand skeleton, hands per person,
+          arm proportions, face symmetry).
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {findings.map((f, i) => (
+            <li key={i} className="flex gap-3 rounded-lg border border-critical/30 bg-critical-soft px-3 py-2 text-sm">
+              <span className="font-semibold text-critical-ink" aria-hidden="true">✗</span>
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-ink-1">{FINDING_LABEL[f.kind] ?? f.kind}</p>
+                <p className="text-ink-2">{f.message}</p>
+              </div>
+              <span className="tnum shrink-0 text-xs text-ink-3" title="Heuristic confidence of this geometric check">
+                {pct(f.confidence, 0)}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
     </Card>
   );

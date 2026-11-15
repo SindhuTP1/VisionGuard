@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, type MetricsResponse, type RunMetrics, type RunSummary } from "@/lib/api";
 import { num, pct } from "@/lib/format";
+import { AnatomyMetrics } from "./AnatomyMetrics";
 import { AccuracyBars, type AccuracyRow } from "./charts/AccuracyBars";
 import { ConfusionMatrix } from "./charts/ConfusionMatrix";
 import { LossChart } from "./charts/LossChart";
@@ -61,6 +62,7 @@ export function MetricsView() {
       )}
       {!data && !error && <p className="text-sm text-ink-3">Loading metrics…</p>}
       {m && <RunReport m={m} />}
+      <AnatomyMetrics />
     </div>
   );
 }

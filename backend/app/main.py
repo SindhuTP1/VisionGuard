@@ -146,6 +146,29 @@ def list_runs() -> list[RunSummary]:
     ]
 
 
+@app.get("/metrics/anatomy")
+def anatomy_metrics() -> dict:
+    """Latest anatomy evaluation (runs/anatomy-<date>/*.json), served verbatim.
+
+    Written by training/eval_fingers.py (real hands: false alarms) and
+    training/eval_hadm.py (labelled AI images: detection). Nothing is hardcoded.
+    """
+    root = settings.paths.runs
+    dirs = sorted((p for p in root.glob("anatomy-*") if p.is_dir()), key=lambda p: p.name, reverse=True) if root.is_dir() else []
+    if not dirs:
+        return {"available": False, "message": "No anatomy evaluation found. Run training/eval_fingers.py and training/eval_hadm.py."}
+    d = dirs[0]
+    files = {}
+    for f in sorted(d.glob("*.json")):
+        if f.stem.endswith("_records"):
+            continue
+        try:
+            files[f.stem] = json.loads(f.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            files[f.stem] = None
+    return {"available": True, "run_id": d.name, "files": files}
+
+
 @app.get("/metrics", response_model=MetricsResponse)
 def metrics(run_id: str | None = Query(None, description="Defaults to the run behind the loaded classifier, else the latest run")) -> MetricsResponse:
     if run_id is not None and not RUN_ID_RE.match(run_id):

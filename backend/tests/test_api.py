@@ -62,6 +62,17 @@ def test_cors_allows_any_local_port_only(client, origin, allowed):
     assert (r.headers.get("access-control-allow-origin") == origin) is allowed
 
 
+def test_anatomy_metrics_served_verbatim(client):
+    assert client.get("/metrics/anatomy").json()["available"] is False
+    d = settings.paths.runs / "anatomy-20990101"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "finger_count_test.json").write_text(json.dumps({"hands_counted": 7}))
+    (d / "hadm_eval_records.json").write_text("[]")          # raw records are not served
+    j = client.get("/metrics/anatomy").json()
+    assert j["available"] and j["run_id"] == "anatomy-20990101"
+    assert j["files"] == {"finger_count_test": {"hands_counted": 7}}
+
+
 @pytest.mark.parametrize("bad", ["../../etc", "a/b", "..\\x"])
 def test_metrics_rejects_path_traversal(client, bad):
     assert client.get("/metrics", params={"run_id": bad}).status_code == 400

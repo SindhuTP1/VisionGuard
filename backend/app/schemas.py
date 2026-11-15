@@ -31,6 +31,7 @@ class PersonOut(_Strict):
     person_score: float | None = None
     note: str | None = None
     person_boxes: list[list[int]] = Field(default_factory=list, description="All person detections, largest first")
+    keypoints: list[list[list[float]]] = Field(default_factory=list, description="17 COCO keypoints [x, y, conf] per person, same order as person_boxes")
 
 
 class FingerOut(_Strict):
@@ -44,6 +45,22 @@ class FingerOut(_Strict):
     ok: bool
 
 
+class FingerCountOut(_Strict):
+    status: Literal["counted", "cant_count"]
+    reason: str | None
+    count: int | None
+    tips: list[list[float]]
+    tip_fingers: list[str | None]
+    outline: list[list[float]]
+    extra_finger: bool
+    area_ratio: float | None
+    outline_count: int | None
+    scan_count: int | None
+    scan_row_counts: list[int]
+    scan_lines: list[list[list[float]]]
+    method: str | None
+
+
 class HandOut(_Strict):
     index: int
     handedness: str | None
@@ -55,6 +72,8 @@ class HandOut(_Strict):
     fail_fraction: float
     anomalous: bool
     skipped_reason: str | None
+    landmarks: list[list[float]] = Field(default_factory=list, description="21 MediaPipe landmarks [x, y], full-image pixels")
+    finger_count: FingerCountOut | None = None
 
 
 class HandsOut(_Strict):
@@ -63,6 +82,35 @@ class HandsOut(_Strict):
     hands: list[HandOut]
     anomalous: bool
     max_fail_fraction: float | None
+    note: str | None
+    extra_finger: bool = False
+
+
+class ArmOut(_Strict):
+    side: Literal["left", "right"]
+    upper_px: float
+    fore_px: float
+    ratio: float
+    ok: bool
+
+
+class BodyPersonOut(_Strict):
+    index: int
+    box: list[int]
+    hands: list[int]
+    hands_by_side: dict[str, list[int]]
+    extra_hand: bool
+    extra_hand_reason: str | None
+    arms: list[ArmOut]
+    distorted_limb: bool
+
+
+class BodyOut(_Strict):
+    status: LayerStatusT
+    persons: list[BodyPersonOut]
+    unattached_hands: list[int]
+    extra_hand: bool
+    distorted_limb: bool
     note: str | None
 
 
@@ -105,13 +153,26 @@ class ClassifierOut(_Strict):
     note: str | None
 
 
+class FindingOut(_Strict):
+    kind: Literal["extra_finger", "extra_hand", "implausible_fingers", "face_asymmetry", "distorted_limb"]
+    anomaly_class: AnomalyClass
+    confidence: float
+    message: str
+    layer: Literal["hands", "body", "face"]
+    hand_index: int | None
+    person_index: int | None
+    face_index: int | None
+    points: list[list[float]]
+
+
 class ArbitrationOut(_Strict):
     verdict: Verdict
     anomaly_class: AnomalyClass | None
-    attribution: Literal["face_geometry", "hand_geometry", "classifier_only", "classifier", "none"]
+    attribution: Literal["face_geometry", "hand_geometry", "body_geometry", "classifier_only", "classifier", "none"]
     confidence: float | None
     reasons: list[str]
     signals: dict[str, float | None]
+    findings: list[FindingOut] = Field(default_factory=list, description="Every geometric check that fired, strongest first")
 
 
 class ImageInfo(_Strict):
@@ -129,6 +190,7 @@ class AnalysisResponse(_Strict):
     person: PersonOut
     hands: HandsOut
     face: FacesOut
+    body: BodyOut
     classifier: ClassifierOut
     arbitration: ArbitrationOut
     timings_ms: dict[str, float]

@@ -1,0 +1,67 @@
+{
+  "tag": "hagrid real hands - tuning set (thresholds were tuned on it)",
+  "images": 1000,
+  "hands_detected": 944,
+  "hands_counted": 356,
+  "hands_cant_count": 588,
+  "cant_count_reasons": {
+    "hand is closed or gripping": 528,
+    "hand too small to count": 56,
+    "hand outline merged with surroundings": 3,
+    "hand outline runs off the crop": 1
+  },
+  "count_distribution": {
+    "1": 13,
+    "2": 28,
+    "3": 126,
+    "4": 111,
+    "5": 78
+  },
+  "outline_count_distribution": {
+    "1": 86,
+    "2": 65,
+    "3": 128,
+    "4": 73,
+    "5": 4
+  },
+  "scan_count_distribution": {
+    "3": 25,
+    "4": 55,
+    "5": 75,
+    "None": 201
+  },
+  "hands_flagged_extra_finger": 0,
+  "flag_rate_per_counted_hand": 0.0,
+  "flag_rate_ci95": [
+    0.0,
+    0.0107
+  ],
+  "images_flagged": 0,
+  "flagged_examples": [],
+  "config": {
+    "min_palm_px": 30.0,
+    "min_extended": 3,
+    "work_palm_px": 110.0,
+    "max_work_side": 380,
+    "crop_pad": 0.9,
+    "grabcut_iters": 5,
+    "tip_min_dist": 0.75,
+    "tip_max_dist": 3.0,
+    "tip_min_prominence": 0.22,
+    "tip_min_axis_proj": 0.25,
+    "tip_match_dist": 0.4,
+    "max_area_ratio": 7.0,
+    "max_border_fraction": 0.12,
+    "extra_finger_min_count": 6,
+    "scan_offsets": [
+      0.3,
+      0.45,
+      0.6
+    ],
+    "scan_min_digit_width": 0.16,
+    "scan_max_digit_width": 0.45,
+    "scan_valley_prominence": 0.12,
+    "scan_valley_min_abs": 6.0
+  },
+  "seconds": 58.4
+}

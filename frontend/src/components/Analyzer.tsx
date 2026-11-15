@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ACCEPTED_TYPES, api, MAX_UPLOAD_MB, type AnalysisResponse, type HealthResponse } from "@/lib/api";
 import { ms } from "@/lib/format";
 import { ImagePreview } from "./ImagePreview";
-import { ClassifierCard, FaceCard, HandsCard, PersonCard } from "./LayerCards";
+import { BodyCard, ClassifierCard, FaceCard, FindingsCard, HandsCard, PersonCard } from "./LayerCards";
 import { VerdictCard } from "./VerdictCard";
 
 type State =
@@ -66,9 +66,10 @@ export function Analyzer() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Analyze an image</h1>
         <p className="mt-1 max-w-3xl text-sm text-ink-2">
-          The image goes through four layers: the person is cropped, hands and the face are checked for
-          impossible geometry, a classifier estimates whether it&apos;s AI-generated, and the results are
-          combined into one verdict. Anything below 65% confidence is sent for human review.
+          VisionGuard looks for the anatomy mistakes AI image generators make. It counts each hand&apos;s fingers,
+          checks finger shapes, counts hands per person and measures face symmetry. A classifier also estimates
+          whether the whole image is AI-generated. Everything it finds is drawn on the image and listed under
+          &ldquo;What looks wrong&rdquo;. Anything below 65% confidence is sent for human review.
         </p>
       </div>
 
@@ -120,11 +121,13 @@ export function Analyzer() {
           {report && (
             <>
               <VerdictCard arb={report.arbitration} threshold={thresholds?.confidence ?? null} />
+              <FindingsCard findings={report.arbitration.findings} />
+              {preview && <HandsCard hands={report.hands} report={report} src={preview} />}
               <div className="grid gap-4 md:grid-cols-2">
                 <PersonCard person={report.person} />
-                <ClassifierCard clf={report.classifier} />
+                <BodyCard body={report.body} hands={report.hands} />
                 <FaceCard face={report.face} threshold={thresholds?.face_asymmetry ?? null} />
-                <HandsCard hands={report.hands} />
+                <ClassifierCard clf={report.classifier} />
               </div>
               <p className="tnum text-xs text-ink-3">
                 Request {report.request_id} · {report.image.width}×{report.image.height}px ·{" "}

@@ -11,7 +11,7 @@ export type AnomalyClass =
   | "floating_anomaly"
   | "melting_geometry"
   | "text_distortion";
-export type Attribution = "face_geometry" | "hand_geometry" | "classifier_only" | "classifier" | "none";
+export type Attribution = "face_geometry" | "hand_geometry" | "body_geometry" | "classifier_only" | "classifier" | "none";
 
 export interface PersonOut {
   status: LayerStatus;
@@ -21,6 +21,7 @@ export interface PersonOut {
   person_score: number | null;
   note: string | null;
   person_boxes: number[][];
+  keypoints: number[][][]; // per person: 17 COCO keypoints [x, y, conf]
 }
 
 export interface FingerOut {
@@ -34,6 +35,22 @@ export interface FingerOut {
   ok: boolean;
 }
 
+export interface FingerCountOut {
+  status: "counted" | "cant_count";
+  reason: string | null;
+  count: number | null;
+  tips: number[][];
+  tip_fingers: (string | null)[];
+  outline: number[][];
+  extra_finger: boolean;
+  area_ratio: number | null;
+  outline_count: number | null;
+  scan_count: number | null;
+  scan_row_counts: number[];
+  scan_lines: number[][][];
+  method: string | null;
+}
+
 export interface HandOut {
   index: number;
   handedness: string | null;
@@ -45,6 +62,8 @@ export interface HandOut {
   fail_fraction: number;
   anomalous: boolean;
   skipped_reason: string | null;
+  landmarks: number[][]; // 21 × [x, y], full-image pixels
+  finger_count: FingerCountOut | null;
 }
 
 export interface HandsOut {
@@ -53,6 +72,27 @@ export interface HandsOut {
   hands: HandOut[];
   anomalous: boolean;
   max_fail_fraction: number | null;
+  note: string | null;
+  extra_finger: boolean;
+}
+
+export interface BodyPersonOut {
+  index: number;
+  box: number[];
+  hands: number[];
+  hands_by_side: Record<string, number[]>;
+  extra_hand: boolean;
+  extra_hand_reason: string | null;
+  arms: { side: "left" | "right"; upper_px: number; fore_px: number; ratio: number; ok: boolean }[];
+  distorted_limb: boolean;
+}
+
+export interface BodyOut {
+  status: LayerStatus;
+  persons: BodyPersonOut[];
+  unattached_hands: number[];
+  extra_hand: boolean;
+  distorted_limb: boolean;
   note: string | null;
 }
 
@@ -90,6 +130,20 @@ export interface ClassifierOut {
   note: string | null;
 }
 
+export type FindingKind = "extra_finger" | "extra_hand" | "implausible_fingers" | "face_asymmetry" | "distorted_limb";
+
+export interface Finding {
+  kind: FindingKind;
+  anomaly_class: AnomalyClass;
+  confidence: number;
+  message: string;
+  layer: "hands" | "body" | "face";
+  hand_index: number | null;
+  person_index: number | null;
+  face_index: number | null;
+  points: number[][];
+}
+
 export interface ArbitrationOut {
   verdict: Verdict;
   anomaly_class: AnomalyClass | null;
@@ -97,6 +151,7 @@ export interface ArbitrationOut {
   confidence: number | null;
   reasons: string[];
   signals: Record<string, number | null>;
+  findings: Finding[];
 }
 
 export interface AnalysisResponse {
@@ -106,6 +161,7 @@ export interface AnalysisResponse {
   person: PersonOut;
   hands: HandsOut;
   face: FacesOut;
+  body: BodyOut;
   classifier: ClassifierOut;
   arbitration: ArbitrationOut;
   timings_ms: Record<string, number>;
@@ -188,6 +244,57 @@ export interface MetricsResponse {
   message: string | null;
 }
 
+// Anatomy evaluation files (runs/anatomy-<date>/*.json), served verbatim.
+export interface RateBlock {
+  positives: number;
+  negatives: number;
+  detected_positives: number;
+  recall: number | null;
+  recall_ci95: [number, number] | null;
+  flagged_negatives: number;
+  false_alarm_rate: number | null;
+  false_alarm_ci95: [number, number] | null;
+  precision: number | null;
+}
+export interface FingerCountEval {
+  tag: string;
+  images: number;
+  hands_detected: number;
+  hands_counted: number;
+  hands_cant_count: number;
+  count_distribution: Record<string, number>;
+  hands_flagged_extra_finger: number;
+  flag_rate_per_counted_hand: number | null;
+  flag_rate_ci95: [number, number] | null;
+}
+export interface HadmEval {
+  dataset: string;
+  images: number;
+  images_with_person: number;
+  extra_hand_or_arm: RateBlock;
+  malformed_hand: {
+    hands_detected: number;
+    hands_overlapping_a_labelled_malformed_hand: number;
+    labelled_malformed_hand_boxes_total: number;
+    hands_countable: number;
+    by_extra_finger: RateBlock;
+    by_skeleton: RateBlock;
+    by_either: RateBlock;
+    note: string;
+  };
+}
+export interface AnatomyMetricsResponse {
+  available: boolean;
+  run_id?: string;
+  message?: string;
+  files?: {
+    finger_count_tuning?: FingerCountEval;
+    finger_count_holdout?: FingerCountEval;
+    finger_count_test?: FingerCountEval;
+    hadm_eval?: HadmEval;
+  };
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -221,6 +328,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => request<HealthResponse>("/health"),
   runs: () => request<RunSummary[]>("/metrics/runs"),
+  anatomy: () => request<AnatomyMetricsResponse>("/metrics/anatomy"),
   metrics: (runId?: string) =>
     request<MetricsResponse>(runId ? `/metrics?run_id=${encodeURIComponent(runId)}` : "/metrics"),
   analyze: (file: File, signal?: AbortSignal) => {

@@ -16,8 +16,17 @@ export const CLASS_LABEL: Record<string, string> = {
 
 export const ATTRIBUTION_LABEL: Record<string, string> = {
   face_geometry: "Face geometry",
+  body_geometry: "Body geometry (hands per person / limbs)",
   hand_geometry: "Hand geometry",
   classifier_only: "Classifier only (no geometric cue)",
   classifier: "Classifier",
   none: "No decision layer available",
+};
+
+export const FINDING_LABEL: Record<string, string> = {
+  extra_finger: "Extra finger",
+  extra_hand: "Extra hand",
+  implausible_fingers: "Impossible finger shape",
+  face_asymmetry: "Distorted face",
+  distorted_limb: "Distorted limb",
 };
