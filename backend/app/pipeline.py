@@ -15,9 +15,12 @@ from typing import Any, Callable, TypeVar
 
 import numpy as np
 
-from .arbitration import ArbitrationResult, arbitrate
+import dataclasses as dc
+
+from .arbitration import ENGINES, ArbitrationResult, Telemetry, arbitrate, sensitivity_multiplier, summarize
+from .artifacts import ArtifactResult, detect_artifacts
 from .body import BodyResult, analyze_body
-from .classifier import ClassifierResult, classify
+from .classifier import ClassifierResult, GradCamResult, classify, grad_cam
 from .config import Settings, settings as default_settings
 from .detectors import (
     FaceResult,
@@ -30,6 +33,7 @@ from .detectors import (
     head_crops,
 )
 from .model_loader import ModelRegistry, get_registry
+from .objects import ObjectsResult, detect_objects
 from .vision_utils import BBox, load_image_bytes
 
 log = logging.getLogger("visionguard.pipeline")
@@ -57,8 +61,13 @@ class AnalysisReport:
     hands: HandResult
     face: FaceResult
     body: BodyResult
+    artifacts: ArtifactResult
+    objects: ObjectsResult
     classifier: ClassifierResult
+    gradcam: GradCamResult
     arbitration: ArbitrationResult
+    telemetry: Telemetry
+    settings_used: dict[str, Any] = field(default_factory=dict)
     timings_ms: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -80,8 +89,13 @@ class VisionGuardPipeline:
         finally:
             timings[name] = round((time.perf_counter() - t0) * 1000, 1)
 
-    def analyze(self, rgb: np.ndarray) -> AnalysisReport:
-        cfg, reg = self.cfg, self.registry
+    def analyze(self, rgb: np.ndarray, sensitivity: float = 50.0, engine: str = "full") -> AnalysisReport:
+        if engine not in ENGINES:
+            raise ValueError(f"unknown engine {engine!r}; choose from {sorted(ENGINES)}")
+        reg = self.registry
+        mult = sensitivity_multiplier(sensitivity)
+        # Sensitivity moves score thresholds: higher sensitivity -> lower face-asymmetry threshold.
+        cfg = dc.replace(self.cfg, face=dc.replace(self.cfg.face, asymmetry_threshold=self.cfg.face.asymmetry_threshold / mult))
         timings: dict[str, float] = {}
         t_start = time.perf_counter()
         h, w = rgb.shape[:2]
@@ -96,17 +110,29 @@ class VisionGuardPipeline:
         hands = self._timed("hands", timings, lambda: analyze_hands(region, reg, cfg.hand, cfg.count, offset),
                             lambda e: HandResult(LayerStatus.ERROR, 0, note=e))
         face = self._timed("face", timings,
-                           lambda: analyze_face(region, reg, cfg.face, head_crops(rgb, person.person_boxes)),
+                           lambda: analyze_face(region, reg, cfg.face, head_crops(rgb, person.person_boxes), offset),
                            lambda e: FaceResult(LayerStatus.ERROR, 0, note=e))
         body = self._timed("body", timings, lambda: analyze_body(person, hands, cfg.body),
                            lambda e: BodyResult(LayerStatus.ERROR, note=e))
+        arts = self._timed("artifacts", timings, lambda: detect_artifacts(rgb, reg, cfg.artifacts.imgsz),
+                           lambda e: ArtifactResult(LayerStatus.ERROR, note=e))
+        objs = self._timed("objects", timings, lambda: detect_objects(rgb, reg),
+                           lambda e: ObjectsResult(LayerStatus.ERROR, note=e))
         clf = self._timed("classifier", timings, lambda: classify(rgb, reg),
                           lambda e: ClassifierResult(LayerStatus.ERROR, note=e))
+        cam = self._timed("gradcam", timings, lambda: grad_cam(rgb, reg),
+                          lambda e: GradCamResult(LayerStatus.ERROR, note=e))
 
-        arb = arbitrate(person, hands, face, body, clf, cfg)
+        arb = arbitrate(person, hands, face, body, clf, cfg, arts, engine=engine, sensitivity_mult=mult)
+        tele = summarize(arb, clf, hands, face, body, arts)
+        used = {"sensitivity": sensitivity, "sensitivity_multiplier": round(mult, 4), "engine": engine,
+                "engine_description": ENGINES[engine],
+                "face_asymmetry_threshold": round(cfg.face.asymmetry_threshold, 4),
+                "review_threshold": cfg.arbitration.confidence_threshold}
         timings["total"] = round((time.perf_counter() - t_start) * 1000, 1)
-        return AnalysisReport({"width": w, "height": h}, person, hands, face, body, clf, arb, timings)
+        return AnalysisReport({"width": w, "height": h}, person, hands, face, body, arts, objs, clf, cam, arb, tele,
+                              used, timings)
 
-    def analyze_bytes(self, data: bytes) -> AnalysisReport:
+    def analyze_bytes(self, data: bytes, sensitivity: float = 50.0, engine: str = "full") -> AnalysisReport:
         rt = self.cfg.runtime
-        return self.analyze(load_image_bytes(data, rt.max_image_side, rt.max_image_pixels))
+        return self.analyze(load_image_bytes(data, rt.max_image_side, rt.max_image_pixels), sensitivity, engine)

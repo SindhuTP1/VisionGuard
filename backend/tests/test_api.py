@@ -15,7 +15,7 @@ def client():
 
 def test_health_reports_components(client):
     j = client.get("/health").json()
-    assert set(j["components"]) == {"yolov8_person", "mediapipe_hands", "mediapipe_face", "mobilenetv3_classifier"}
+    assert set(j["components"]) == {"yolov8_person", "yolov8_objects", "mediapipe_hands", "mediapipe_face", "mobilenetv3_classifier", "artifact_detector"}
     assert j["confidence_threshold"] == settings.arbitration.confidence_threshold
     assert j["thresholds"]["face_asymmetry"] == settings.face.asymmetry_threshold
     assert j["thresholds"]["hand_fail_fraction"] == settings.hand.anomaly_fail_fraction

@@ -6,6 +6,7 @@ import { AnatomyOverlay, type OverlayLayers } from "./AnatomyOverlay";
 import { useWidth } from "./charts/useWidth";
 
 const LAYER_LABELS: [keyof OverlayLayers, string][] = [
+  ["artifacts", "Detected errors"],
   ["boxes", "People"],
   ["body", "Body pose"],
   ["hands", "Hand skeleton"],
@@ -20,7 +21,7 @@ export function ImagePreview({ src, name, report, loading }: {
   report: AnalysisResponse | null;
   loading: boolean;
 }) {
-  const [layers, setLayers] = useState<OverlayLayers>({ boxes: true, body: true, hands: true, count: true });
+  const [layers, setLayers] = useState<OverlayLayers>({ artifacts: true, boxes: true, body: true, hands: true, count: true });
   const [ref, width] = useWidth<HTMLDivElement>();
   const W = report?.image.width ?? 1;
   const H = report?.image.height ?? 1;

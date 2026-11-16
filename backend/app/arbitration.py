@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .artifacts import ANOMALY_OF, LABEL, ArtifactResult
 from .body import BodyResult
 from .classifier import ClassifierResult
 from .config import AnomalyClass, Settings, Verdict
@@ -34,15 +35,17 @@ from .detectors import FaceResult, HandResult, LayerStatus, PersonResult, _r
 
 @dataclass
 class Finding:
-    kind: str                     # extra_finger | extra_hand | implausible_fingers | face_asymmetry | distorted_limb
+    kind: str                     # extra_finger | extra_hand | implausible_fingers | face_asymmetry | distorted_limb | artifact
     anomaly_class: AnomalyClass
     confidence: float             # geometric confidence (heuristic, see module docstring)
     message: str
-    layer: str                    # hands | body | face
+    layer: str                    # hands | body | face | artifacts
     hand_index: int | None = None
     person_index: int | None = None
     face_index: int | None = None
     points: list[list[float]] = field(default_factory=list)   # full-image [x, y] to highlight
+    box: list[float] | None = None                             # full-image [x1, y1, x2, y2] (artefact detector)
+    artifact_class: str | None = None
 
 
 @dataclass
@@ -54,6 +57,21 @@ class ArbitrationResult:
     reasons: list[str] = field(default_factory=list)
     signals: dict[str, float | None] = field(default_factory=dict)
     findings: list[Finding] = field(default_factory=list)
+    engine: str = "full"
+
+
+ENGINES = {
+    "full": "All layers: geometry checks + classifier",
+    "geometry": "Geometry only: finger count, hands per person, face symmetry (classifier ignored)",
+    "classifier": "Classifier only: real-vs-fake model (geometry checks ignored)",
+}
+
+
+def sensitivity_multiplier(sensitivity: float) -> float:
+    """Dashboard sensitivity 0-100 to a multiplier on geometric evidence (50 = defaults).
+    100 doubles every geometric confidence and halves score thresholds; 0 does the opposite."""
+    s = min(100.0, max(0.0, float(sensitivity)))
+    return 2.0 ** ((s - 50.0) / 50.0)
 
 
 def geometric_confidence(score: float | None, threshold: float) -> float | None:
@@ -62,10 +80,11 @@ def geometric_confidence(score: float | None, threshold: float) -> float | None:
     return min(1.0, max(0.0, score / threshold / 2.0))
 
 
-ATTRIBUTION = {"hands": "hand_geometry", "face": "face_geometry", "body": "body_geometry"}
+ATTRIBUTION = {"hands": "hand_geometry", "face": "face_geometry", "body": "body_geometry", "artifacts": "artifact_detector"}
 
 
-def collect_findings(hands: HandResult, face: FaceResult, body: BodyResult | None, cfg: Settings) -> list[Finding]:
+def collect_findings(hands: HandResult, face: FaceResult, body: BodyResult | None, cfg: Settings,
+                     artifacts: ArtifactResult | None = None, sensitivity_mult: float = 1.0) -> list[Finding]:
     a = cfg.arbitration
     out: list[Finding] = []
 
@@ -80,7 +99,7 @@ def collect_findings(hands: HandResult, face: FaceResult, body: BodyResult | Non
                 f"Hand {n}: {fc.count} fingertips counted in its outline (a hand has at most 5)",
                 "hands", hand_index=hf.index, points=extra_pts,
             ))
-        if hf.skipped_reason is None and hf.anomalous:
+        if a.skeleton_findings_enabled and hf.skipped_reason is None and hf.anomalous:
             conf = geometric_confidence(hf.fail_fraction, cfg.hand.anomaly_fail_fraction) or 0.0
             tips = {"thumb": 4, "index": 8, "middle": 12, "ring": 16, "pinky": 20}
             pts = [hf.landmarks[tips[f]] for f in hf.failed_fingers if hf.landmarks]
@@ -120,8 +139,17 @@ def collect_findings(hands: HandResult, face: FaceResult, body: BodyResult | Non
                     "face", face_index=f.index,
                 ))
 
+    if artifacts is not None and artifacts.status == LayerStatus.OK and artifacts.threshold:
+        for b in artifacts.boxes:
+            out.append(Finding(
+                "artifact", ANOMALY_OF[b.cls],
+                geometric_confidence(b.score, artifacts.threshold) or 0.0,
+                f"Learned detector: {LABEL[b.cls]} (score {b.score:.2f}, threshold {artifacts.threshold:.2f})",
+                "artifacts", box=b.box, artifact_class=b.cls,
+            ))
+
     for f in out:
-        f.confidence = round(f.confidence, 4)
+        f.confidence = round(min(1.0, f.confidence * sensitivity_mult), 4)
     return sorted(out, key=lambda f: f.confidence, reverse=True)
 
 
@@ -132,10 +160,17 @@ def arbitrate(
     body: BodyResult | None,
     clf: ClassifierResult,
     cfg: Settings,
+    artifacts: ArtifactResult | None = None,
+    engine: str = "full",
+    sensitivity_mult: float = 1.0,
 ) -> ArbitrationResult:
     thr = cfg.arbitration.confidence_threshold
     reasons: list[str] = []
-    clf_ok = clf.status == LayerStatus.OK
+    use_geometry = engine in ("full", "geometry")
+    use_classifier = engine in ("full", "classifier")
+    clf_ok = clf.status == LayerStatus.OK and use_classifier
+    if engine != "full":
+        reasons.append(f"Engine: {ENGINES[engine]}")
 
     if person.used_fallback:
         reasons.append(person.note or "Full image used (no person crop)")
@@ -143,25 +178,27 @@ def arbitrate(
         reasons.append(f"Finger check not applied ({hands.status.value}): {hands.note}")
     if face.status != LayerStatus.OK:
         reasons.append(f"Face check not applied ({face.status.value}): {face.note}")
-    if not clf_ok:
+    if not clf_ok and use_classifier:
         reasons.append(f"Classifier unavailable: {clf.note}")
 
-    findings = collect_findings(hands, face, body, cfg)
+    findings = collect_findings(hands, face, body, cfg, artifacts, sensitivity_mult)
     for f in findings:
-        reasons.append(f.message)
+        reasons.append(f.message if use_geometry else f"(ignored by engine) {f.message}")
 
     hand_conf = max((f.confidence for f in findings if f.layer == "hands"), default=None)
     face_conf = max((f.confidence for f in findings if f.layer == "face"), default=None)
     body_conf = max((f.confidence for f in findings if f.layer == "body"), default=None)
+    art_conf = max((f.confidence for f in findings if f.layer == "artifacts"), default=None)
     signals = {
         "hand_geometric_confidence": _r(hand_conf),
         "face_geometric_confidence": _r(face_conf),
         "body_geometric_confidence": _r(body_conf),
+        "artifact_detector_confidence": _r(art_conf),
         "p_fake": clf.p_fake,
     }
 
     # ---- a geometric finding decides the class ----------------------------- #
-    if findings:
+    if findings and use_geometry:
         top = findings[0]
         if clf_ok:
             conf = (top.confidence + clf.p_fake) / 2.0
@@ -171,19 +208,77 @@ def arbitrate(
             conf = top.confidence
         verdict = Verdict.ANOMALY_DETECTED if conf >= thr else Verdict.NEEDS_REVIEW
         return ArbitrationResult(verdict, top.anomaly_class, ATTRIBUTION[top.layer], _r(conf),
-                                 reasons, signals, findings)
+                                 reasons, signals, findings, engine)
 
     # ---- no geometric finding: the classifier decides ---------------------- #
     if not clf_ok:
         reasons.append("No geometric anomaly found, but there is no classifier to confirm the image is authentic")
-        return ArbitrationResult(Verdict.NEEDS_REVIEW, None, "none", None, reasons, signals)
+        return ArbitrationResult(Verdict.NEEDS_REVIEW, None, "none", None, reasons, signals, findings, engine)
 
     if clf.label == "fake":
         reasons.append(f"Classifier flags image as AI-generated (p_fake={clf.p_fake}); no geometric cue localises it")
         verdict = Verdict.ANOMALY_DETECTED if clf.p_fake >= thr else Verdict.NEEDS_REVIEW
-        return ArbitrationResult(verdict, None, "classifier_only", clf.p_fake, reasons, signals)
+        return ArbitrationResult(verdict, None, "classifier_only", clf.p_fake, reasons, signals, findings, engine)
 
     verdict = Verdict.VERIFIED_SAFE if clf.p_real >= thr else Verdict.NEEDS_REVIEW
     if verdict is Verdict.NEEDS_REVIEW:
         reasons.append(f"Classifier leans real but p_real={clf.p_real} < {thr}")
-    return ArbitrationResult(verdict, AnomalyClass.NORMAL, "classifier", clf.p_real, reasons, signals)
+    return ArbitrationResult(verdict, AnomalyClass.NORMAL, "classifier", clf.p_real, reasons, signals, findings, engine)
+
+
+# --------------------------------------------------------------------------- #
+# Telemetry summary: probability matrix, entropy, confidence boost
+# --------------------------------------------------------------------------- #
+@dataclass
+class MatrixRow:
+    category: AnomalyClass
+    value: float | None          # 0..1, or None = not measured
+    source: str                  # where the number comes from (shown in the UI)
+    kind: str                    # "model_probability" | "check_score" | "not_measured"
+
+
+@dataclass
+class Telemetry:
+    matrix: list[MatrixRow]
+    entropy_bits: float | None           # binary entropy of the classifier output (0 = certain, 1 = coin flip)
+    entropy_level: str | None            # low | medium | high
+    classifier_confidence: float | None  # what the classifier alone would have said
+    confidence_boost: float | None       # final confidence minus the classifier's support for the same verdict
+
+
+def summarize(arb: ArbitrationResult, clf: ClassifierResult, hands: HandResult, face: FaceResult,
+              body: BodyResult | None, artifacts: ArtifactResult | None) -> Telemetry:
+    """Honest 5-category matrix. No model was trained on these five categories, so
+    each row states its real source, and rows without a detector are "not measured"."""
+    import math
+
+    def best(cls: AnomalyClass) -> float:
+        return max((f.confidence for f in arb.findings if f.anomaly_class is cls), default=0.0)
+
+    art_ok = bool(artifacts and artifacts.status == LayerStatus.OK)
+    anat_ran = hands.status == LayerStatus.OK or bool(body and body.status == LayerStatus.OK) or art_ok
+    melt_ran = face.status == LayerStatus.OK or art_ok
+    clf_ok = clf.status == LayerStatus.OK
+    matrix = [
+        MatrixRow(AnomalyClass.ANATOMICAL_EXTRA, best(AnomalyClass.ANATOMICAL_EXTRA) if anat_ran else None,
+                  "Strongest anatomy check score (finger count, hands per person"
+                  + (", learned detector)" if art_ok else ")"),
+                  "check_score" if anat_ran else "not_measured"),
+        MatrixRow(AnomalyClass.FLOATING_ANOMALY, None, "No detector for floating objects in this system", "not_measured"),
+        MatrixRow(AnomalyClass.MELTING_GEOMETRY, best(AnomalyClass.MELTING_GEOMETRY) if melt_ran else None,
+                  "Strongest geometry check score (face symmetry)", "check_score" if melt_ran else "not_measured"),
+        MatrixRow(AnomalyClass.NORMAL, clf.p_real if clf_ok else None,
+                  "Classifier probability the image is real (MobileNetV3, trained on AI-vs-Real)",
+                  "model_probability" if clf_ok else "not_measured"),
+        MatrixRow(AnomalyClass.TEXT_DISTORTION, None, "No text / OCR detector in this system", "not_measured"),
+    ]
+    ent = level = clf_conf = boost = None
+    if clf_ok and clf.p_fake is not None:
+        p = min(max(clf.p_fake, 1e-9), 1 - 1e-9)
+        ent = round(-(p * math.log2(p) + (1 - p) * math.log2(1 - p)), 4)
+        level = "low" if ent < 0.47 else "medium" if ent < 0.88 else "high"    # p>0.9 | 0.7-0.9 | 0.3-0.7
+        clf_conf = clf.confidence
+        if arb.confidence is not None:
+            base = clf.p_real if arb.anomaly_class is AnomalyClass.NORMAL else clf.p_fake
+            boost = round(arb.confidence - base, 4)
+    return Telemetry(matrix, ent, level, clf_conf, boost)

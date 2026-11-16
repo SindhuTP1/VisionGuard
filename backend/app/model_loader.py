@@ -9,6 +9,7 @@ scores.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import tempfile
@@ -102,6 +103,15 @@ def load_yolo(cfg: Settings = default_settings):
     return YOLO(str(path))
 
 
+def load_object_detector(cfg: Settings = default_settings):
+    """Plain YOLOv8n (COCO, 80 classes) for Layer 1's general object boxes."""
+    os.environ.setdefault("YOLO_AUTOINSTALL", "False")
+    from ultralytics import YOLO
+
+    path = ensure_weight("yolov8n.pt", "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n.pt", cfg)
+    return YOLO(str(path))
+
+
 def load_hand_landmarker(cfg: Settings = default_settings):
     from mediapipe.tasks import python as mp_python
     from mediapipe.tasks.python import vision as mp_vision
@@ -134,6 +144,34 @@ def load_face_landmarker(cfg: Settings = default_settings):
         output_facial_transformation_matrixes=False,
     )
     return mp_vision.FaceLandmarker.create_from_options(opts)
+
+
+@dataclass
+class LoadedArtifactDetector:
+    model: Any
+    threshold: float
+    run_id: str
+    classes: tuple[str, ...]
+
+
+def load_artifact_detector(cfg: Settings = default_settings) -> LoadedArtifactDetector:
+    """YOLOv8n fine-tuned on HADM. Its confidence threshold (chosen on HADM val)
+    lives in a sidecar JSON next to the weights. Missing = unavailable, never faked."""
+    path = cfg.paths.weights / cfg.artifacts.weights_name
+    meta_path = path.with_suffix(".json")
+    if not path.is_file() or not meta_path.is_file():
+        raise ModelUnavailableError(
+            f"Artefact detector not found at {path} (+ .json). Train it with `python -m training.train_artifacts`."
+        )
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    os.environ.setdefault("YOLO_AUTOINSTALL", "False")
+    from ultralytics import YOLO
+
+    model = YOLO(str(path))
+    names = tuple(model.names[i] for i in sorted(model.names))
+    if names != cfg.artifacts.classes:
+        raise ModelUnavailableError(f"Artefact detector classes {names} != expected {cfg.artifacts.classes}")
+    return LoadedArtifactDetector(model, float(meta["threshold"]), str(meta.get("run_id", "unknown")), names)
 
 
 def build_classifier(num_outputs: int = len(CLASSIFIER_LABELS), pretrained: bool = True) -> nn.Module:
@@ -264,12 +302,14 @@ class ModelRegistry:
         cfg.paths.ensure()
         self.cfg = cfg
         self.yolo: Component = Component("yolov8_person", lambda: load_yolo(cfg))
+        self.objects: Component = Component("yolov8_objects", lambda: load_object_detector(cfg))
         self.hands: Component = Component("mediapipe_hands", lambda: load_hand_landmarker(cfg))
         self.face: Component = Component("mediapipe_face", lambda: load_face_landmarker(cfg))
         self.classifier: Component[LoadedClassifier] = Component("mobilenetv3_classifier", lambda: load_classifier(cfg))
+        self.artifacts: Component[LoadedArtifactDetector] = Component("artifact_detector", lambda: load_artifact_detector(cfg))
 
     def components(self) -> dict[str, Component]:
-        return {c.name: c for c in (self.yolo, self.hands, self.face, self.classifier)}
+        return {c.name: c for c in (self.yolo, self.objects, self.hands, self.face, self.classifier, self.artifacts)}
 
     def warmup(self) -> dict[str, dict[str, Any]]:
         """Try to load everything up front; failures are recorded, not raised."""

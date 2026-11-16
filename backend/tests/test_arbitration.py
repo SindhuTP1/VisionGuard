@@ -58,8 +58,15 @@ def test_classifier_disagreement_sends_to_review():
     assert (r.verdict, r.anomaly_class) == (Verdict.NEEDS_REVIEW, AnomalyClass.MELTING_GEOMETRY)
 
 
-def test_hand_anomaly_maps_to_anatomical_extra():
+def test_skeleton_check_is_not_used_to_decide_by_default():
     r = run(BAD_HANDS, OK_FACE, clf(0.9))
+    assert r.attribution == "classifier_only" and not r.findings
+
+
+def test_hand_anomaly_maps_to_anatomical_extra_when_enabled():
+    import dataclasses
+    cfg = dataclasses.replace(settings, arbitration=dataclasses.replace(settings.arbitration, skeleton_findings_enabled=True))
+    r = arbitrate(P, BAD_HANDS, OK_FACE, None, clf(0.9), cfg)
     assert (r.verdict, r.anomaly_class, r.attribution) == (
         Verdict.ANOMALY_DETECTED, AnomalyClass.ANATOMICAL_EXTRA, "hand_geometry")
 

@@ -1,4 +1,5 @@
 import type { AnalysisResponse } from "@/lib/api";
+import { ARTIFACT_LABEL } from "@/lib/format";
 
 // MediaPipe hand skeleton (21 landmarks) and the COCO body skeleton (17 keypoints).
 const HAND_BONES: [number, number][] = [
@@ -21,6 +22,7 @@ const BODY_BONES: [number, number][] = [
 ];
 
 export interface OverlayLayers {
+  artifacts: boolean;
   boxes: boolean;
   body: boolean;
   hands: boolean;
@@ -35,7 +37,7 @@ export function AnatomyOverlay({ report, layers, scale = 1, only }: {
   scale?: number;            // image pixels per screen pixel
   only?: number;             // draw only this hand (zoom view)
 }) {
-  const { person, hands, body, arbitration } = report;
+  const { person, hands, body, arbitration, artifacts } = report;
   const sw = 2 * scale;
   const flaggedHands = new Set(arbitration.findings.filter((f) => f.hand_index != null).map((f) => f.hand_index));
   const extraPersons = new Set(body.persons.filter((p) => p.extra_hand).map((p) => p.index));
@@ -71,6 +73,17 @@ export function AnatomyOverlay({ report, layers, scale = 1, only }: {
           </g>
         ) : null,
       )}
+
+      {layers.artifacts && only == null && artifacts.boxes.map((b, i) => (
+        <g key={`art-${i}`}>
+          <rect x={b.box[0]} y={b.box[1]} width={b.box[2] - b.box[0]} height={b.box[3] - b.box[1]} fill="none"
+            stroke="var(--critical)" strokeWidth={sw * 1.25} rx={3 * scale} />
+          <text x={b.box[0]} y={b.box[1] - 4 * scale} fontSize={11 * scale} fontWeight={700} fill="#ffffff"
+            stroke="var(--critical)" strokeWidth={3 * scale} paintOrder="stroke">
+            {ARTIFACT_LABEL[b.cls] ?? b.cls} {Math.round(b.score * 100)}%
+          </text>
+        </g>
+      ))}
 
       {hands.hands.map((h) => {
         if (only != null && h.index !== only) return null;

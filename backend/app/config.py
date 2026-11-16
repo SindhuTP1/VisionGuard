@@ -138,6 +138,18 @@ class HandConfig:
 
 
 # --------------------------------------------------------------------------- #
+# Layer 2d: learned artefact detector (YOLOv8n fine-tuned on HADM labels)
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class ArtifactConfig:
+    weights_name: str = _env_str("ARTIFACT_WEIGHTS", "hadm_artifacts_yolov8n.pt")
+    # The confidence threshold is NOT set here: it was chosen on HADM val and is
+    # stored next to the weights (<weights>.json), so it always matches the model.
+    imgsz: int = 512
+    classes: tuple[str, ...] = ("malformed_hand", "malformed_face", "malformed_body", "extra_limb", "missing_limb")
+
+
+# --------------------------------------------------------------------------- #
 # Layer 2c: body pose (hands per person, arm proportions)
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
@@ -304,6 +316,10 @@ class ArbitrationConfig:
     # Arm ratios are shown but NOT used as a finding: on real photos, an arm pointing
     # at the camera foreshortens past any usable bound (e.g. 3.7 on a real photo).
     limb_findings_enabled: bool = False
+    # The finger-skeleton check (lengths / backward bends) flagged 24% of labelled
+    # malformed AI hands AND 24% of unlabelled ones on HADM val, i.e. no better than
+    # chance (runs/anatomy-20261115/hadm_eval.json). Shown in the UI, not used to decide.
+    skeleton_findings_enabled: bool = False
     distorted_limb_conf: float = 0.5
 
 
@@ -334,6 +350,7 @@ class Settings:
     hand: HandConfig = field(default_factory=HandConfig)
     count: FingerCountConfig = field(default_factory=FingerCountConfig)
     body: BodyConfig = field(default_factory=BodyConfig)
+    artifacts: ArtifactConfig = field(default_factory=ArtifactConfig)
     face: FaceConfig = field(default_factory=FaceConfig)
     classifier: ClassifierConfig = field(default_factory=ClassifierConfig)
     train: TrainConfig = field(default_factory=TrainConfig)

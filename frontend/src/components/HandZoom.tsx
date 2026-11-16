@@ -24,7 +24,7 @@ export function HandZoom({ src, report, hand, size = 180 }: {
       className="shrink-0 rounded-lg border border-line bg-surface-2" role="img"
       aria-label={`Zoomed view of hand ${hand.index + 1}`}>
       <image href={src} x={0} y={0} width={W} height={H} preserveAspectRatio="none" />
-      <AnatomyOverlay report={report} only={hand.index} layers={{ boxes: false, body: false, hands: true, count: true }}
+      <AnatomyOverlay report={report} only={hand.index} layers={{ artifacts: false, boxes: false, body: false, hands: true, count: true }}
         scale={side / size} />
     </svg>
   );

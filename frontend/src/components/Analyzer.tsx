@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ACCEPTED_TYPES, api, MAX_UPLOAD_MB, type AnalysisResponse, type HealthResponse } from "@/lib/api";
 import { ms } from "@/lib/format";
 import { ImagePreview } from "./ImagePreview";
-import { BodyCard, ClassifierCard, FaceCard, FindingsCard, HandsCard, PersonCard } from "./LayerCards";
+import { ArtifactsCard, BodyCard, ClassifierCard, FaceCard, FindingsCard, HandsCard, PersonCard } from "./LayerCards";
 import { VerdictCard } from "./VerdictCard";
 
 type State =
@@ -34,7 +34,7 @@ export function Analyzer() {
     abortRef.current = ctrl;
     setState({ kind: "loading" });
     try {
-      const report = await api.analyze(f, ctrl.signal);
+      const report = await api.analyze(f, { sensitivity: 50, engine: "full" }, ctrl.signal);
       if (!ctrl.signal.aborted) setState({ kind: "done", report });
     } catch (e) {
       if (!ctrl.signal.aborted) setState({ kind: "error", message: (e as Error).message });
@@ -128,6 +128,7 @@ export function Analyzer() {
                 <BodyCard body={report.body} hands={report.hands} />
                 <FaceCard face={report.face} threshold={thresholds?.face_asymmetry ?? null} />
                 <ClassifierCard clf={report.classifier} />
+                <ArtifactsCard artifacts={report.artifacts} />
               </div>
               <p className="tnum text-xs text-ink-3">
                 Request {report.request_id} · {report.image.width}×{report.image.height}px ·{" "}

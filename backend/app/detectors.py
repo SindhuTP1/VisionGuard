@@ -75,7 +75,7 @@ class PersonResult:
     keypoints: list[list[list[float]]] = field(default_factory=list)
 
 
-def head_crops(rgb: np.ndarray, person_boxes: list[list[int]], limit: int = 3) -> list[np.ndarray]:
+def head_crops(rgb: np.ndarray, person_boxes: list[list[int]], limit: int = 3) -> list[tuple[np.ndarray, tuple[int, int]]]:
     """Square crop at the top of each person box, where the head should be.
 
     The FaceLandmarker detector is short-range (selfie framing), so faces that are
@@ -88,8 +88,8 @@ def head_crops(rgb: np.ndarray, person_boxes: list[list[int]], limit: int = 3) -
         if side < 32:
             continue
         cx = (x1 + x2) // 2
-        box = BBox(max(0, cx - side // 2), y1, min(w, cx + side // 2), min(h, y1 + side))
-        crops.append(box.padded(0.1, w, h).crop(rgb))
+        box = BBox(max(0, cx - side // 2), y1, min(w, cx + side // 2), min(h, y1 + side)).padded(0.1, w, h)
+        crops.append((box.crop(rgb), (box.x1, box.y1)))   # crop + its top-left in the full image
     return crops
 
 
@@ -339,6 +339,8 @@ class FaceFinding:
     worst_pairs: list[dict[str, Any]] = field(default_factory=list)
     anomalous: bool = False
     skipped_reason: str | None = None
+    landmarks: list[list[float]] = field(default_factory=list)   # face mesh [x, y], full-image pixels
+    box: list[float] | None = None                               # [x1, y1, x2, y2] full-image pixels
 
 
 @dataclass
@@ -395,24 +397,33 @@ def evaluate_face(pts: np.ndarray, cfg: FaceConfig, index: int = 0) -> FaceFindi
 
 
 def analyze_face(rgb: np.ndarray, registry: ModelRegistry, cfg: FaceConfig,
-                 fallback_crops: list[np.ndarray] | None = None) -> FaceResult:
-    """Run on the person region; if no face is found, search ``fallback_crops`` (head crops)."""
+                 fallback_crops: list[tuple[np.ndarray, tuple[int, int]]] | None = None,
+                 offset: tuple[float, float] = (0.0, 0.0)) -> FaceResult:
+    """Run on the person region (top-left ``offset`` in the full image); if no face is
+    found, search ``fallback_crops`` (head crops with their own offsets). All
+    coordinates in the result are full-image pixels."""
     comp = registry.face
     landmarker = comp.try_get()
     if landmarker is None:
         return FaceResult(LayerStatus.UNAVAILABLE, 0, note=comp.status()["error"])
 
-    def detect(img: np.ndarray) -> list[np.ndarray]:
+    def detect(img: np.ndarray, off: tuple[float, float]) -> list[np.ndarray]:
         h, w = img.shape[:2]
         with comp.lock:
             res = landmarker.detect(_to_mp_image(img))
-        return [landmarks_to_array(lms, w, h) for lms in res.face_landmarks]
+        out = []
+        for lms in res.face_landmarks:
+            pts = landmarks_to_array(lms, w, h)
+            pts[:, 0] += off[0]          # translation doesn't change any symmetry measure
+            pts[:, 1] += off[1]
+            out.append(pts)
+        return out
 
     note = None
-    point_sets = detect(rgb)
+    point_sets = detect(rgb, offset)
     if not point_sets and fallback_crops:
-        for crop in fallback_crops:
-            point_sets.extend(detect(crop))
+        for crop, off in fallback_crops:
+            point_sets.extend(detect(crop, off))
             if len(point_sets) >= cfg.max_num_faces:
                 break
         if point_sets:
@@ -421,7 +432,12 @@ def analyze_face(rgb: np.ndarray, registry: ModelRegistry, cfg: FaceConfig,
     if not point_sets:
         return FaceResult(LayerStatus.SKIPPED, 0, note="0 faces detected; symmetry check skipped")
 
-    faces = [evaluate_face(pts, cfg, i) for i, pts in enumerate(point_sets[: cfg.max_num_faces])]
+    faces = []
+    for i, pts in enumerate(point_sets[: cfg.max_num_faces]):
+        f = evaluate_face(pts, cfg, i)
+        f.landmarks = [[round(float(x), 1), round(float(y), 1)] for x, y in pts[:, :2]]
+        f.box = [round(float(v), 1) for v in (*pts[:, :2].min(0), *pts[:, :2].max(0))]
+        faces.append(f)
     judged = [f for f in faces if f.skipped_reason is None]
     if not judged:
         return FaceResult(LayerStatus.SKIPPED, len(faces), faces, note="No face suitable for symmetry analysis")

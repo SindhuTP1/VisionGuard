@@ -5,55 +5,35 @@
    series-1/2 passed the CVD + contrast checks on both surfaces. */
 :root {
   color-scheme: light;
-  --surface-0: #f6f6f4;      /* page */
-  --surface-1: #fcfcfb;      /* cards, chart surface */
-  --surface-2: #f0efec;      /* insets, tracks */
-  --line: #e2e1dc;
-  --line-strong: #c9c8c1;
-  --ink-1: #0b0b0b;          /* primary text */
-  --ink-2: #52514e;          /* secondary text */
-  --ink-3: #75746f;          /* muted text */
-  --accent: #2a78d6;
+  --surface-0: #ffffff;      /* page: clean white */
+  --surface-1: #ffffff;      /* cards */
+  --surface-2: #f3f5f8;      /* insets, tracks */
+  --line: #e3e7ee;           /* light grey borders */
+  --line-strong: #c8cfdb;
+  --ink-1: #0f1b33;          /* dark navy text */
+  --ink-2: #3e4b66;
+  --ink-3: #6b7690;
+  --accent: #1d4ed8;
   --accent-ink: #ffffff;
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --good: #0ca30c;
-  --good-ink: #006300;
-  --warning: #fab219;
-  --warning-ink: #7a5200;
+  --good-ink: #0b6b2b;
+  --warning: #f5a400;
+  --warning-ink: #8a5a00;
   --critical: #d03b3b;
   --critical-ink: #a32020;
-  --good-soft: #e7f5e7;
-  --warning-soft: #fdf3dc;
-  --critical-soft: #fbe9e9;
+  --good-soft: #e9f7ee;
+  --warning-soft: #fff6e0;
+  --critical-soft: #fdecec;
+  --shadow: 0 1px 2px rgba(15, 27, 51, 0.06), 0 4px 12px rgba(15, 27, 51, 0.05);
   /* sequential blue ramp (100 → 700) */
   --seq-100: #cde2fb; --seq-200: #9ec5f4; --seq-300: #6da7ec; --seq-400: #3987e5;
   --seq-500: #256abf; --seq-600: #184f95; --seq-700: #0d366b;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) {
-    color-scheme: dark;
-    --surface-0: #121211;
-    --surface-1: #1a1a19;
-    --surface-2: #242422;
-    --line: #2e2e2b;
-    --line-strong: #44443f;
-    --ink-1: #f0efec;
-    --ink-2: #c3c2b7;
-    --ink-3: #96958c;
-    --accent: #3987e5;
-    --accent-ink: #ffffff;
-    --series-1: #3987e5;
-    --series-2: #d95926;
-    --good-ink: #5fd35f;
-    --warning-ink: #fab219;
-    --critical-ink: #f08080;
-    --good-soft: #142a14;
-    --warning-soft: #2e2510;
-    --critical-soft: #331616;
-  }
-}
+/* The dashboard is designed as a white forensic console. Dark mode is opt-in only
+   (data-theme="dark"), not automatic. */
 :root[data-theme="dark"] {
   color-scheme: dark;
   --surface-0: #121211;
@@ -110,4 +90,13 @@ body {
 /* Tabular numbers everywhere numbers are compared. */
 .tnum {
   font-variant-numeric: tabular-nums;
+}
+
+/* "Print Diagnostic PDF": print only the forensic report (browser → Save as PDF). */
+@media print {
+  @page { size: A4; margin: 14mm; }
+  body > header, body > footer, .print-hide { display: none !important; }
+  body, main { background: #ffffff !important; padding: 0 !important; margin: 0 !important; max-width: none !important; }
+  #forensic-report { display: block !important; }
+  .break-inside-avoid { break-inside: avoid; }
 }

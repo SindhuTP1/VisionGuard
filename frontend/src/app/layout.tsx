@@ -16,12 +16,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col font-sans">
-        <header className="border-b border-line bg-surface-1">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-            <div className="flex items-center gap-2">
-              <ShieldIcon />
-              <span className="text-[15px] font-semibold tracking-tight">VisionGuard</span>
-              <span className="rounded border border-line px-1.5 py-0.5 text-[11px] text-ink-3">research prototype</span>
+        <header className="border-b border-line bg-surface-1 shadow-[var(--shadow)]">
+          <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-ink-1"><ShieldIcon /></span>
+              <div>
+                <div className="text-lg font-bold tracking-tight text-ink-1">VisionGuard</div>
+                <div className="text-xs text-ink-3">A Multi-Layer AI Hallucination Detection Prototype with Explainable Visual Validation</div>
+              </div>
             </div>
             <NavLinks />
             <div className="ml-auto">
@@ -29,7 +31,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             </div>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
+        <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-6">{children}</main>
         <footer className="border-t border-line py-4 text-center text-xs text-ink-3">
           VisionGuard is a research prototype. Its verdicts are signals for a human reviewer, not proof.
         </footer>
@@ -41,8 +43,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
 function ShieldIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z" stroke="var(--accent)" strokeWidth="2" strokeLinejoin="round" />
-      <path d="M9 12l2 2 4-4" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z" stroke="#ffffff" strokeWidth="2" strokeLinejoin="round" />
+      <path d="M9 12l2 2 4-4" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

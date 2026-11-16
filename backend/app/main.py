@@ -5,8 +5,11 @@ Run:  uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import threading
+from collections import OrderedDict
 import os
 import re
 import uuid
@@ -14,7 +17,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 
@@ -38,7 +41,16 @@ logging.basicConfig(
 )
 log = logging.getLogger("visionguard.api")
 
+# Not trained in this install (see training/train_artifacts.py); its absence is not a fault.
+OPTIONAL_COMPONENTS = {"artifact_detector"}
+
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,128}$")
+
+# Result cache: same image bytes + same settings -> same report (the pipeline is
+# deterministic). Keeps the last 64 results in memory.
+_CACHE: OrderedDict[tuple, dict] = OrderedDict()
+_CACHE_LOCK = threading.Lock()
+_CACHE_SIZE = 64
 
 
 @asynccontextmanager
@@ -76,8 +88,10 @@ app.add_middleware(
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     comps = get_registry().status()
+    for name, c in comps.items():
+        c["optional"] = name in OPTIONAL_COMPONENTS
     return HealthResponse(
-        status="ok" if all(c["loaded"] for c in comps.values()) else "degraded",
+        status="ok" if all(c["loaded"] for n, c in comps.items() if n not in OPTIONAL_COMPONENTS) else "degraded",
         version=__version__,
         device=str(resolve_device(settings.runtime.device)),
         components=comps,
@@ -98,7 +112,11 @@ def health() -> HealthResponse:
     response_model=AnalysisResponse,
     responses={413: {"model": ErrorResponse}, 415: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-async def analyze(file: UploadFile = File(..., description="JPEG, PNG or WebP image")) -> AnalysisResponse:
+async def analyze(
+    file: UploadFile = File(..., description="JPEG, PNG or WebP image"),
+    sensitivity: float = Form(50.0, ge=0, le=100, description="0-100; 50 = calibrated defaults"),
+    engine: str = Form("full", pattern="^(full|geometry|classifier)$"),
+) -> AnalysisResponse:
     rt = settings.runtime
     if file.content_type not in rt.allowed_mime:
         raise HTTPException(415, f"Unsupported content type {file.content_type!r}; allowed: {list(rt.allowed_mime)}")
@@ -108,20 +126,34 @@ async def analyze(file: UploadFile = File(..., description="JPEG, PNG or WebP im
         raise HTTPException(413, f"File exceeds {rt.max_upload_bytes // (1024 * 1024)} MB limit")
 
     pipeline: VisionGuardPipeline = app.state.pipeline
-    try:
-        # CPU-bound: keep it off the event loop.
-        report = await run_in_threadpool(pipeline.analyze_bytes, data)
-    except ImageDecodeError as exc:
-        raise HTTPException(422, str(exc)) from exc
+    sha = hashlib.sha256(data).hexdigest()
+    key = (sha, round(sensitivity, 1), engine)
+    with _CACHE_LOCK:
+        cached = _CACHE.get(key)
+        if cached is not None:
+            _CACHE.move_to_end(key)
+    if cached is not None:
+        body, cache = cached, "HIT"
+    else:
+        try:
+            # CPU-bound: keep it off the event loop.
+            report = await run_in_threadpool(pipeline.analyze_bytes, data, sensitivity, engine)
+        except ImageDecodeError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        body, cache = report.to_dict(), "MISS"
+        with _CACHE_LOCK:
+            _CACHE[key] = body
+            while len(_CACHE) > _CACHE_SIZE:
+                _CACHE.popitem(last=False)
 
     request_id = uuid.uuid4().hex[:12]
-    arb = report.arbitration
-    log.info("analyze id=%s verdict=%s class=%s conf=%s total_ms=%s",
-             request_id, arb.verdict.value, getattr(arb.anomaly_class, "value", None),
-             arb.confidence, report.timings_ms.get("total"))
-    return AnalysisResponse.model_validate(
-        {"request_id": request_id, "filename": file.filename, **report.to_dict()}
-    )
+    arb = body["arbitration"]
+    log.info("analyze id=%s cache=%s verdict=%s class=%s conf=%s total_ms=%s", request_id, cache,
+             arb["verdict"], arb["anomaly_class"], arb["confidence"], body["timings_ms"].get("total"))
+    return AnalysisResponse.model_validate({
+        "request_id": request_id, "filename": file.filename, "cache": cache, "image_sha256": sha,
+        "executed_at": datetime.now(timezone.utc).isoformat(), **body,
+    })
 
 
 # --------------------------------------------------------------------------- #

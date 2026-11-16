@@ -17,6 +17,7 @@ export const CLASS_LABEL: Record<string, string> = {
 export const ATTRIBUTION_LABEL: Record<string, string> = {
   face_geometry: "Face geometry",
   body_geometry: "Body geometry (hands per person / limbs)",
+  artifact_detector: "Learned artefact detector",
   hand_geometry: "Hand geometry",
   classifier_only: "Classifier only (no geometric cue)",
   classifier: "Classifier",
@@ -29,4 +30,13 @@ export const FINDING_LABEL: Record<string, string> = {
   implausible_fingers: "Impossible finger shape",
   face_asymmetry: "Distorted face",
   distorted_limb: "Distorted limb",
+  artifact: "Anatomy error (learned detector)",
+};
+
+export const ARTIFACT_LABEL: Record<string, string> = {
+  malformed_hand: "malformed hand",
+  malformed_face: "distorted face",
+  malformed_body: "distorted arm/leg/body",
+  extra_limb: "extra limb",
+  missing_limb: "missing limb",
 };

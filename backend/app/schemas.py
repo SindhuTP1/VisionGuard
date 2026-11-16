@@ -131,6 +131,8 @@ class FaceOut(_Strict):
     worst_pairs: list[PairScore]
     anomalous: bool
     skipped_reason: str | None
+    landmarks: list[list[float]] = Field(default_factory=list, description="Face mesh [x, y], full-image pixels")
+    box: list[float] | None = None
 
 
 class FacesOut(_Strict):
@@ -153,26 +155,83 @@ class ClassifierOut(_Strict):
     note: str | None
 
 
+class ArtifactBoxOut(_Strict):
+    cls: Literal["malformed_hand", "malformed_face", "malformed_body", "extra_limb", "missing_limb"]
+    score: float
+    box: list[float]
+
+
+class ArtifactsOut(_Strict):
+    status: LayerStatusT
+    boxes: list[ArtifactBoxOut]
+    threshold: float | None
+    run_id: str | None
+    note: str | None
+
+
 class FindingOut(_Strict):
-    kind: Literal["extra_finger", "extra_hand", "implausible_fingers", "face_asymmetry", "distorted_limb"]
+    kind: Literal["extra_finger", "extra_hand", "implausible_fingers", "face_asymmetry", "distorted_limb", "artifact"]
     anomaly_class: AnomalyClass
     confidence: float
     message: str
-    layer: Literal["hands", "body", "face"]
+    layer: Literal["hands", "body", "face", "artifacts"]
     hand_index: int | None
     person_index: int | None
     face_index: int | None
     points: list[list[float]]
+    box: list[float] | None = None
+    artifact_class: str | None = None
+
+
+class DetectedObjectOut(_Strict):
+    label: str
+    score: float
+    box: list[float]
+
+
+class ObjectsOut(_Strict):
+    status: LayerStatusT
+    objects: list[DetectedObjectOut]
+    note: str | None
+
+
+class GradCamCropOut(_Strict):
+    box: list[float]
+    grid: list[list[float]]
+    p_target: float | None
+
+
+class GradCamOut(_Strict):
+    status: LayerStatusT
+    target: str | None
+    crops: list[GradCamCropOut]
+    note: str | None
+
+
+class MatrixRowOut(_Strict):
+    category: AnomalyClass
+    value: float | None
+    source: str
+    kind: Literal["model_probability", "check_score", "not_measured"]
+
+
+class TelemetryOut(_Strict):
+    matrix: list[MatrixRowOut]
+    entropy_bits: float | None
+    entropy_level: Literal["low", "medium", "high"] | None
+    classifier_confidence: float | None
+    confidence_boost: float | None
 
 
 class ArbitrationOut(_Strict):
     verdict: Verdict
     anomaly_class: AnomalyClass | None
-    attribution: Literal["face_geometry", "hand_geometry", "body_geometry", "classifier_only", "classifier", "none"]
+    attribution: Literal["face_geometry", "hand_geometry", "body_geometry", "artifact_detector", "classifier_only", "classifier", "none"]
     confidence: float | None
     reasons: list[str]
     signals: dict[str, float | None]
     findings: list[FindingOut] = Field(default_factory=list, description="Every geometric check that fired, strongest first")
+    engine: Literal["full", "geometry", "classifier"] = "full"
 
 
 class ImageInfo(_Strict):
@@ -186,13 +245,21 @@ class ImageInfo(_Strict):
 class AnalysisResponse(_Strict):
     request_id: str
     filename: str | None
+    cache: Literal["HIT", "MISS"] = "MISS"
+    image_sha256: str | None = None
+    executed_at: str | None = None
     image: ImageInfo
     person: PersonOut
     hands: HandsOut
     face: FacesOut
     body: BodyOut
+    artifacts: ArtifactsOut
+    objects: ObjectsOut
     classifier: ClassifierOut
+    gradcam: GradCamOut
     arbitration: ArbitrationOut
+    telemetry: TelemetryOut
+    settings_used: dict[str, Any]
     timings_ms: dict[str, float]
 
 
@@ -200,6 +267,7 @@ class ComponentStatus(_Strict):
     loaded: bool
     error: str | None
     load_seconds: float | None
+    optional: bool = False
 
 
 class HealthResponse(_Strict):

@@ -11,7 +11,7 @@ export type AnomalyClass =
   | "floating_anomaly"
   | "melting_geometry"
   | "text_distortion";
-export type Attribution = "face_geometry" | "hand_geometry" | "body_geometry" | "classifier_only" | "classifier" | "none";
+export type Attribution = "face_geometry" | "hand_geometry" | "body_geometry" | "artifact_detector" | "classifier_only" | "classifier" | "none";
 
 export interface PersonOut {
   status: LayerStatus;
@@ -108,6 +108,8 @@ export interface FaceOut {
   worst_pairs: { pair: number[]; score: number | null }[];
   anomalous: boolean;
   skipped_reason: string | null;
+  landmarks: number[][]; // face mesh [x, y], full-image pixels
+  box: number[] | null;
 }
 
 export interface FacesOut {
@@ -130,18 +132,30 @@ export interface ClassifierOut {
   note: string | null;
 }
 
-export type FindingKind = "extra_finger" | "extra_hand" | "implausible_fingers" | "face_asymmetry" | "distorted_limb";
+export type FindingKind = "extra_finger" | "extra_hand" | "implausible_fingers" | "face_asymmetry" | "distorted_limb" | "artifact";
+
+export type ArtifactClass = "malformed_hand" | "malformed_face" | "malformed_body" | "extra_limb" | "missing_limb";
+
+export interface ArtifactsOut {
+  status: LayerStatus;
+  boxes: { cls: ArtifactClass; score: number; box: number[] }[];
+  threshold: number | null;
+  run_id: string | null;
+  note: string | null;
+}
 
 export interface Finding {
   kind: FindingKind;
   anomaly_class: AnomalyClass;
   confidence: number;
   message: string;
-  layer: "hands" | "body" | "face";
+  layer: "hands" | "body" | "face" | "artifacts";
   hand_index: number | null;
   person_index: number | null;
   face_index: number | null;
   points: number[][];
+  box?: number[] | null;
+  artifact_class?: ArtifactClass | null;
 }
 
 export interface ArbitrationOut {
@@ -152,18 +166,64 @@ export interface ArbitrationOut {
   reasons: string[];
   signals: Record<string, number | null>;
   findings: Finding[];
+  engine: Engine;
 }
+
+export interface ObjectsOut {
+  status: LayerStatus;
+  objects: { label: string; score: number; box: number[] }[];
+  note: string | null;
+}
+
+export interface GradCamOut {
+  status: LayerStatus;
+  target: string | null;
+  crops: { box: number[]; grid: number[][]; p_target: number | null }[];
+  note: string | null;
+}
+
+export interface MatrixRow {
+  category: AnomalyClass;
+  value: number | null;
+  source: string;
+  kind: "model_probability" | "check_score" | "not_measured";
+}
+
+export interface TelemetryOut {
+  matrix: MatrixRow[];
+  entropy_bits: number | null;
+  entropy_level: "low" | "medium" | "high" | null;
+  classifier_confidence: number | null;
+  confidence_boost: number | null;
+}
+
+export type Engine = "full" | "geometry" | "classifier";
 
 export interface AnalysisResponse {
   request_id: string;
   filename: string | null;
+  cache: "HIT" | "MISS";
+  image_sha256: string | null;
+  executed_at: string | null;
   image: { width: number; height: number };
   person: PersonOut;
   hands: HandsOut;
   face: FacesOut;
   body: BodyOut;
+  artifacts: ArtifactsOut;
+  objects: ObjectsOut;
   classifier: ClassifierOut;
+  gradcam: GradCamOut;
   arbitration: ArbitrationOut;
+  telemetry: TelemetryOut;
+  settings_used: {
+    sensitivity: number;
+    sensitivity_multiplier: number;
+    engine: Engine;
+    engine_description: string;
+    face_asymmetry_threshold: number;
+    review_threshold: number;
+  };
   timings_ms: Record<string, number>;
 }
 
@@ -171,7 +231,7 @@ export interface HealthResponse {
   status: "ok" | "degraded";
   version: string;
   device: string;
-  components: Record<string, { loaded: boolean; error: string | null; load_seconds: number | null }>;
+  components: Record<string, { loaded: boolean; error: string | null; load_seconds: number | null; optional?: boolean }>;
   confidence_threshold: number;
   thresholds: { confidence: number; face_asymmetry: number; hand_fail_fraction: number };
 }
@@ -331,9 +391,11 @@ export const api = {
   anatomy: () => request<AnatomyMetricsResponse>("/metrics/anatomy"),
   metrics: (runId?: string) =>
     request<MetricsResponse>(runId ? `/metrics?run_id=${encodeURIComponent(runId)}` : "/metrics"),
-  analyze: (file: File, signal?: AbortSignal) => {
+  analyze: (file: File, opts: { sensitivity: number; engine: Engine }, signal?: AbortSignal) => {
     const body = new FormData();
     body.append("file", file);
+    body.append("sensitivity", String(opts.sensitivity));
+    body.append("engine", opts.engine);
     return request<AnalysisResponse>("/analyze", { method: "POST", body, signal });
   },
 };

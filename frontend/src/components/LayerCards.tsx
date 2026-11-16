@@ -1,5 +1,5 @@
-import type { AnalysisResponse, BodyOut, ClassifierOut, FacesOut, Finding, HandOut, HandsOut, PersonOut } from "@/lib/api";
-import { FINDING_LABEL, num, pct } from "@/lib/format";
+import type { AnalysisResponse, ArtifactsOut, BodyOut, ClassifierOut, FacesOut, Finding, HandOut, HandsOut, PersonOut } from "@/lib/api";
+import { ARTIFACT_LABEL, FINDING_LABEL, num, pct } from "@/lib/format";
 import { HandZoom } from "./HandZoom";
 import { Card, KV, LayerBadge } from "./ui";
 
@@ -283,4 +283,31 @@ export function FindingsCard({ findings }: { findings: Finding[] }) {
 
 function Note({ children }: { children: React.ReactNode }) {
   return <p className="mt-2 text-xs text-ink-3">{children}</p>;
+}
+
+export function ArtifactsCard({ artifacts }: { artifacts: ArtifactsOut }) {
+  return (
+    <Card title="6 · Learned anatomy-error detector" aside={<LayerBadge status={artifacts.status} />}>
+      {artifacts.status !== "ok" ? (
+        <Note>{artifacts.note ?? "Detector did not run."}</Note>
+      ) : artifacts.boxes.length === 0 ? (
+        <p className="text-sm text-good-ink">✓ No malformed hands, faces or limbs detected</p>
+      ) : (
+        <ul className="space-y-1 text-sm">
+          {artifacts.boxes.map((b, i) => (
+            <li key={i} className="flex justify-between">
+              <span className="text-critical-ink">✗ {ARTIFACT_LABEL[b.cls] ?? b.cls}</span>
+              <span className="tnum text-ink-2">{pct(b.score, 0)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {artifacts.status === "ok" && (
+        <Note>
+          YOLOv8n trained on HADM (AI images where people boxed anatomy errors). It only reports boxes scoring at
+          least {pct(artifacts.threshold, 0)}, a cutoff chosen on held-out data. Its measured accuracy is on the Metrics page.
+        </Note>
+      )}
+    </Card>
+  );
 }
